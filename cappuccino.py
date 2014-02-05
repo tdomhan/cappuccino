@@ -54,9 +54,6 @@ class ConvNetSearchSpace(object):
         self.max_fc_layers = max_fc_layers
         self.input_dimensions = input_dimensions
 
-        for layer_id in range(self.max_conv_layers):
-            pass
-
     def get_network_parameter_subspace(self):
         params = {}
         params["lr"] = Parameter(0, 0.8, is_int=False)
@@ -218,10 +215,16 @@ def test_fun(kwargs):
     print "Test fun called, parameters:"
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(kwargs)
-    caffe = CaffeConvNet(kwargs, "train-leveldb", "test-leveldb", "mean-leveldb", 128)
-    return {'loss': 0, 'status': STATUS_OK}
+    caffe = CaffeConvNet(kwargs,
+                         train_file="/home/domhant/data/cifar10/caffe/cifar-train-leveldb",
+                         valid_file="/home/domhant/data/cifar10/caffe/cifar-test-leveldb",
+                         mean_file="/home/domhant/data/cifar10/caffe/cifar-train-mean.binaryproto",
+                         num_validation_set_batches=100,
+                         batch_size_train=128,
+                         batch_size_valid=100)
+    return caffe.run()
 
-best = fmin(test_fun, space=tpe_space, algo=tpe.suggest, max_evals=10)
+best = fmin(test_fun, space=tpe_space, algo=tpe.suggest, max_evals=1)
 
 if False:
     caffe_net = caffe_pb2.NetParameter()
