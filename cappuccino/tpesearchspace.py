@@ -91,9 +91,9 @@ class TPEConvNetSearchSpace(ConvNetSearchSpace):
 
         #Fully connected layers
         fc_layer_subspaces = []
-        fc_layer_params = self.get_fc_layer_subspace()
 
         for layer_id in range(self.max_fc_layers):
+            fc_layer_params = self.get_fc_layer_subspace(layer_id)
             label = "fc-layer-%d" % (layer_id)
             fc_layer_subspace = self.convnet_space_to_tpe(label,
                                                         fc_layer_params)

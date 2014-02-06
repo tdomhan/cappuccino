@@ -214,8 +214,33 @@ class CaffeConvNet(object):
 
         prev_layer_name = current_layer_name
 
-        #TODO: add RELU
-        #TODO: add dropout
+        #RELU
+        if params.pop("activation") == "relu":
+            caffe_relu_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "relu"
+            caffe_relu_layer.layer.name = current_layer_name
+            caffe_relu_layer.layer.type = "relu"
+            caffe_relu_layer.bottom.append(prev_layer_name)
+            caffe_relu_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+
+        #Dropout
+        dropout_params = params.pop("dropout")
+        if dropout_params["use_dropout"] == True:
+            caffe_dropout_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "dropout"
+            caffe_dropout_layer.layer.name = current_layer_name
+            caffe_dropout_layer.layer.type = "dropout"
+            caffe_dropout_layer.layer.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.bottom.append(prev_layer_name)
+            caffe_dropout_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+
+#        assert len(params) == 0, "More fc layer parameters given than needed: " + str(params)
 
         return prev_layer_name
 
