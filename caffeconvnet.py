@@ -12,7 +12,8 @@ class CaffeConvNet(object):
                  num_validation_set_batches,
                  mean_file=None,
                  batch_size_train = 128,
-                 batch_size_valid = 100):
+                 batch_size_valid = 100,
+                 test_interval = 100):
         """
             Parameters of the network as defined by ConvNetSearchSpace.
 
@@ -23,6 +24,7 @@ class CaffeConvNet(object):
             mean_file: mean per dimesnion leveldb file
             batch_size_train: the batch size during training
             batch_size_test: the batch size during testing
+            test_interval: the number of iterations between running the network on the test set
         """
         self._train_file = train_file
         self._valid_file = valid_file
@@ -30,6 +32,7 @@ class CaffeConvNet(object):
         self._batch_size_train = batch_size_train
         self._batch_size_valid = batch_size_valid
         self._num_validation_set_batches = num_validation_set_batches
+        self._test_interval = test_interval
 
         self._base_name = "imagenet"
 
@@ -199,6 +202,8 @@ class CaffeConvNet(object):
         caffe_fc_layer.bottom.append(prev_layer_name)
         caffe_fc_layer.top.append(current_layer_name)
 
+        caffe_fc_layer.layer.num_output = int(params.pop("num_output"))
+
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_fc_layer.layer.weight_filler
         for param, param_val in weight_filler_params.iteritems():
@@ -216,13 +221,18 @@ class CaffeConvNet(object):
 
     def _create_network_parameters(self, params):
         self._solver.base_lr = params.pop("lr")
+        self._solver.lr_policy = "fixed"
         self._solver.momentum = params.pop("momentum")
         self._solver.weight_decay = params.pop("weight_decay")
         self._solver.train_net = self._train_network_file
         self._solver.test_net = self._valid_network_file
         self._solver.test_iter = self._num_validation_set_batches
+        #self._solver.max_iter = 1000
+        self._solver.termination_criterion = self._solver.TEST_ACCURACY
+        self._solver.test_accuracy_stop_countdown = 10
+
         #TODO: make parameter
-        self._solver.test_interval = 100
+        self._solver.test_interval = self._test_interval
         self._solver.display = 100
         self._solver.snapshot = 10000000
         self._solver.snapshot_prefix = "caffenet"

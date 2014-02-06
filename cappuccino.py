@@ -64,9 +64,9 @@ class ConvNetSearchSpace(object):
     def get_conv_layer_subspace(self):
         params = {}
         params["type"] = "conv"
-        params["kernelsize"] = Parameter(2, 10, is_int=True)
+        params["kernelsize"] = Parameter(2, 5, is_int=True)
         params["num_output"] = Parameter(5, 500, is_int=True)
-        params["stride"] = Parameter(1, 10, is_int=True)
+        params["stride"] = Parameter(1, 3, is_int=True)
         params["weight-filler"] = [{"type": "gaussian",
                                     "std": Parameter(0.01, 10, is_int=False)},
                                    {"type": "xavier",
@@ -81,6 +81,7 @@ class ConvNetSearchSpace(object):
     def get_fc_layer_subspace(self):
         params = {}
         params["type"] = "fc"
+        params["num_output"] = Parameter(10, 1000, is_int=True)
         params["weight-filler"] = [{"type": "gaussian",
                                     "std": Parameter(0.01, 10, is_int=False)},
                                    {"type": "xavier",
@@ -202,15 +203,6 @@ class TPEConvNetSearchSpace(ConvNetSearchSpace):
 
         return params
 
-
-space = TPEConvNetSearchSpace()
-tpe_space = TPEConvNetSearchSpace().get_tpe_search_space()
-print "TPE search space"
-print tpe_space
-print "Search space samples:"
-for i in range(0,10):
-    print hyperopt.pyll.stochastic.sample(tpe_space)
-
 def test_fun(kwargs):
     print "Test fun called, parameters:"
     pp = pprint.PrettyPrinter(indent=4)
@@ -224,7 +216,17 @@ def test_fun(kwargs):
                          batch_size_valid=100)
     return caffe.run()
 
-best = fmin(test_fun, space=tpe_space, algo=tpe.suggest, max_evals=1)
+def test():
+    space = TPEConvNetSearchSpace()
+    tpe_space = TPEConvNetSearchSpace().get_tpe_search_space()
+    print "TPE search space"
+    print tpe_space
+    print "Search space samples:"
+    for i in range(0,10):
+        print hyperopt.pyll.stochastic.sample(tpe_space)
+
+
+    best = fmin(test_fun, space=tpe_space, algo=tpe.suggest, max_evals=1)
 
 if False:
     caffe_net = caffe_pb2.NetParameter()
