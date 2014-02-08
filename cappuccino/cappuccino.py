@@ -55,7 +55,7 @@ class ConvNetSearchSpace(object):
         params["weight_decay"] = Parameter(0, 0.1, is_int=False)
         return params
 
-    def get_conv_layer_subspace(self):
+    def get_conv_layer_subspace(self, layer_idx):
         params = {}
         params["type"] = "conv"
         params["kernelsize"] = Parameter(2, 5, is_int=True)

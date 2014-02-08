@@ -5,7 +5,7 @@ import hyperopt.pyll.stochastic
 from hyperopt import fmin, tpe, hp, STATUS_OK
 
 from caffeconvnet import CaffeConvNet
-from tpesearchspace import TPEConvNetSearchSpace
+from cappuccino.tpesearchspace import TPEConvNetSearchSpace
 
 def test_fun(kwargs):
     print "Test fun called, parameters:"
