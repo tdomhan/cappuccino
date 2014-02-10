@@ -1,5 +1,6 @@
 from caffe.proto import caffe_pb2
-from subprocess import check_output
+from subprocess import check_output, call, STDOUT
+import traceback
 import copy
 
 class CaffeConvNet(object):
@@ -11,9 +12,11 @@ class CaffeConvNet(object):
                  valid_file,
                  num_validation_set_batches,
                  mean_file=None,
+                 scale_factor=None,
                  batch_size_train = 128,
                  batch_size_valid = 100,
-                 test_interval = 100):
+                 test_interval = 100,
+                 device_id=0):
         """
             Parameters of the network as defined by ConvNetSearchSpace.
 
@@ -22,25 +25,30 @@ class CaffeConvNet(object):
             valid_file: the validation data leveldb file
             num_validation_set_batches: num_validation_set_batches * batch_size_test = number of training examples
             mean_file: mean per dimesnion leveldb file
+            scale_factor: a factor used for scaling the input data.
             batch_size_train: the batch size during training
             batch_size_test: the batch size during testing
             test_interval: the number of iterations between running the network on the test set
+            device_id: the id of the device to run the experiment on
         """
         self._train_file = train_file
         self._valid_file = valid_file
         self._mean_file = mean_file
+        if scale_factor != None:
+            self._scale_factor = scale_factor
         self._batch_size_train = batch_size_train
         self._batch_size_valid = batch_size_valid
         self._num_validation_set_batches = num_validation_set_batches
         self._test_interval = test_interval
+        self._device_id = device_id
 
-        self._base_name = "imagenet"
+        self._base_name = "caffenet"
 
         self._train_network_file = self._base_name + "_train.prototxt"
         self._valid_network_file = self._base_name + "_valid.prototxt"
         self._solver_file = self._base_name + "_solver.prototxt"
 
-        self._convert_params_to_caffe_network(params)
+        self._convert_params_to_caffe_network(copy.deepcopy(params))
         self._create_train_valid_networks()
 
         self._serialize()
@@ -120,6 +128,8 @@ class CaffeConvNet(object):
         data_layer = self._caffe_net.layers.add()
         data_layer.layer.name = "data"
         data_layer.layer.type = "data"
+        if hasattr(self, "_scale_factor"):
+            data_layer.layer.scale = self._scale_factor
         data_layer.top.append("data")
         data_layer.top.append("label")
 
@@ -173,18 +183,20 @@ class CaffeConvNet(object):
         prev_layer_name = current_layer_name
 
         # Pooling
-        caffe_pool_layer = self._caffe_net.layers.add()
+        pooling_params = params.pop("pooling")
+        if pooling_params["type"] == "max":
+            caffe_pool_layer = self._caffe_net.layers.add()
 
-        current_layer_name = current_layer_base_name + "pool"
-        caffe_pool_layer.layer.name = current_layer_name
-        caffe_pool_layer.layer.type = "pool"
-        caffe_pool_layer.bottom.append(prev_layer_name)
-        caffe_pool_layer.top.append(current_layer_name)
-        caffe_pool_layer.layer.pool = caffe_pool_layer.layer.MAX
-        caffe_pool_layer.layer.kernelsize = 3
-        caffe_pool_layer.layer.stride = 2
+            current_layer_name = current_layer_base_name + "pool"
+            caffe_pool_layer.layer.name = current_layer_name
+            caffe_pool_layer.layer.type = "pool"
+            caffe_pool_layer.bottom.append(prev_layer_name)
+            caffe_pool_layer.top.append(current_layer_name)
+            caffe_pool_layer.layer.pool = caffe_pool_layer.layer.MAX
+            caffe_pool_layer.layer.kernelsize = int(pooling_params["kernelsize"])
+            caffe_pool_layer.layer.stride = int(pooling_params["stride"])
 
-        prev_layer_name = current_layer_name
+            prev_layer_name = current_layer_name
 
         #TODO; normlization layer
         #TODO; padding layer
@@ -246,7 +258,21 @@ class CaffeConvNet(object):
 
     def _create_network_parameters(self, params):
         self._solver.base_lr = params.pop("lr")
-        self._solver.lr_policy = "fixed"
+        lr_policy_params = params.pop("lr_policy")
+        lr_policy = lr_policy_params.pop("type")
+        self._solver.lr_policy = lr_policy
+        if lr_policy == "fixed":
+            pass
+        elif lr_policy == "exp":
+            self._solver.gamma = lr_policy_params.pop("gamma")
+        elif lr_policy == "step":
+            self._solver.gamma = lr_policy_params.pop("gamma")
+            self._solver.stepsize = lr_policy_params.pop("stepsize")
+        elif lr_policy == "inv":
+            self._solver.gamma = lr_policy_params.pop("gamma")
+            self._solver.power = lr_policy_params.pop("power")
+        assert len(lr_policy_params) == 0, "More learning policy arguments given, than needed, " + str(lr_policy_params)
+
         self._solver.momentum = params.pop("momentum")
         self._solver.weight_decay = params.pop("weight_decay")
         self._solver.train_net = self._train_network_file
@@ -261,6 +287,7 @@ class CaffeConvNet(object):
         self._solver.display = 100
         self._solver.snapshot = 10000000
         self._solver.snapshot_prefix = "caffenet"
+        self._solver.device_id = self._device_id
 
         assert len(params) == 0, "More solver parameters given than needed: " + str(params)
 
@@ -281,28 +308,24 @@ class CaffeConvNet(object):
         """
             Run the given network and return the best validation performance.
         """
-        return run_caffe()
+        return run_caffe(self._solver_file)
 
 
-def run_caffe():
+def run_caffe(solver_file):
     """
         Runs caffe and returns the accuracy.
     """
     try:
-        output = check_output(("GLOG_logtostderr=1 train_net.bin "
-                               "imagenet_solver.prototxt"),
-                               shell=True)
-                               #, stderr=STDOUT)
+        output = check_output(["train_net.sh", solver_file])
 
         accuracy = output.split("\n")[-1]
         if "Accuracy:" in accuracy:
             accuracy = float(accuracy.split("Accuracy: ", 1)[1])
-            print "accuracy: ", accuracy
-            return {'loss': 1.0-accuracy, 'status': "ok"}
+            return 1.0 - accuracy
         else:
             #Failed?
-            return {'loss': 1.0, 'status': "fail"}
+            raise RuntimeError("Failed running caffe: didn't find accuracy in output")
     except:
         print "ERROR!"
-        return {'loss': 1.0, 'status': "fail"}
+        raise RuntimeError("Failed running caffe." + traceback.format_exc())
 

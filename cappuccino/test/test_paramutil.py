@@ -1,5 +1,6 @@
 import unittest
 from cappuccino.paramutil import construct_parameter_tree_from_labels
+from cappuccino.paramutil import group_layers
 
 
 class TestParameterTreeConstruction(unittest.TestCase):
@@ -29,6 +30,17 @@ class TestParameterTreeConstruction(unittest.TestCase):
         """
         params = {"convlayer0/kernelwidth": 1, "convlayer0/weight-filler@gaussian@somethingelse/std": 0.01}
         self.assertRaises(AssertionError, construct_parameter_tree_from_labels, params)
+
+class TestGroupLayer(unittest.TestCase):
+
+    def test_group_layer(self):
+        params = {"conv-layer-1": 1, "conv-layer-2":2, "fc-layer-3": 3, "network": 4}
+
+        conv_layers, fc_layers, network = group_layers(params)
+        self.assertEqual(conv_layers, [1,2])
+        self.assertEqual(fc_layers, [3])
+        self.assertEqual(network, 4)
+
 
 
 if __name__ == '__main__':

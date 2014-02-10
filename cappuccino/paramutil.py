@@ -1,3 +1,14 @@
+import ast
+
+def value_to_literal(value):
+    """
+        Tries to convert a value to either a 
+        float, int or boolean.
+    """
+    try:
+        return ast.literal_eval(value)
+    except:
+        return value
 
 def construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape_char_choice = "@"):
     """
@@ -10,6 +21,8 @@ def construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape
     param_tree = {} 
 
     for label, value in params.iteritems():
+        value = value_to_literal(value)
+
         tree_path = label.split(escape_char_depth)
         # walk through the tree:
         current_node = param_tree
@@ -44,21 +57,22 @@ def group_layers(params_tree):
     fc_layers = []
     for name, val in params_tree.iteritems():
         if name.startswith("conv-layer-"):
-            idx = int(name.split("-")[2])
+            idx = int(name.split("-")[2]) 
             conv_layers.append((idx,val))
         elif name.startswith("fc-layer-"):
             idx = int(name.split("-")[2])
             fc_layers.append((idx,val))
         else:
             pass
-    def stack_layers(layers):
-        layers_stacked = [None] * len(layers)
-        for idx, val in layers:
-            layers_stacked[idx] = val
-        return layers_stacked
- 
-    conv_layers = stack_layers(conv_layers)
-    fc_layers = stack_layers(fc_layers)
+
+    conv_layers = sorted(conv_layers)
+    fc_layers = sorted(fc_layers)
+
+    #remove indices:
+    conv_layers = list(zip(*conv_layers)[1])
+    #remove indices:
+    fc_layers = list(zip(*fc_layers)[1])
+
     network_params = params_tree["network"]
 
     return (conv_layers, fc_layers, network_params)

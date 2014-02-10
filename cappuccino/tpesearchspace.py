@@ -1,5 +1,6 @@
 from cappuccino import ConvNetSearchSpace, Parameter
 from hyperopt import hp
+from math import log
 
 
 def encode_tree_path(label, escape_char, item_name):
@@ -15,8 +16,8 @@ def parameter_to_tpe(label, parameter):
     if parameter.is_int:
         if parameter.log_scale:
             return hp.qloguniform(label,
-                                  parameter.min_val,
-                                  parameter.max_val,
+                                  log(parameter.min_val),
+                                  log(parameter.max_val),
                                   1)
         else:
             return hp.quniform(label,
@@ -26,8 +27,8 @@ def parameter_to_tpe(label, parameter):
     else:
         if parameter.log_scale:
             return hp.loguniform(label,
-                              parameter.min_val,
-                              parameter.max_val)
+                                 log(parameter.min_val),
+                                 log(parameter.max_val))
         else:
             return hp.uniform(label,
                                  parameter.min_val,
@@ -89,10 +90,11 @@ class TPEConvNetSearchSpace(ConvNetSearchSpace):
         params = []
         #Convolutional layers:
         conv_layer_subspaces = []
+        #Note: we also allow for no conv layers.
 
         for layer_id in range(self.max_conv_layers):
             conv_layer_params = self.get_conv_layer_subspace(layer_id)
-            label = "conv-layer-%d" % (layer_id)
+            label = "conv-layer-%d" % (layer_id+1)
             conv_layer_subspace = convnet_space_to_tpe(label,
                                                             conv_layer_params)
             conv_layer_subspaces.append(conv_layer_subspace)
@@ -107,10 +109,16 @@ class TPEConvNetSearchSpace(ConvNetSearchSpace):
 
         for layer_id in range(self.max_fc_layers):
             fc_layer_params = self.get_fc_layer_subspace(layer_id)
-            label = "fc-layer-%d" % (layer_id)
+            label = "fc-layer-%d" % (layer_id+1)
             fc_layer_subspace = convnet_space_to_tpe(label,
                                                         fc_layer_params)
             fc_layer_subspaces.append(fc_layer_subspace)
+
+        """
+            We always want the last layer to show up, because it has special parameters.
+            [[fc3], [fc2, fc3], [fc1, fc2, fc3]]
+        """
+        fc_layer_subspaces.reverse()
 
         fc_layers_combinations = get_stacked_layers_subspace(fc_layer_subspaces)
         fc_layers_space = hp.choice("fc-layers",
@@ -122,4 +130,7 @@ class TPEConvNetSearchSpace(ConvNetSearchSpace):
 
         return params
 
+
+    def tpe_sample_to_caffe_convnet(self):
+        pass
 

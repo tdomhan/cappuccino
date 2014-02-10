@@ -1,4 +1,7 @@
 
+#TODO: make batch size a parameter!
+
+
 class Parameter:
     def __init__(self, min_val, max_val, is_int=False, log_scale=False):
         assert(min_val < max_val)
@@ -50,26 +53,46 @@ class ConvNetSearchSpace(object):
 
     def get_network_parameter_subspace(self):
         params = {}
-        params["lr"] = Parameter(0, 0.8, is_int=False)
-        params["momentum"] = Parameter(0, 1, is_int=False)
-        params["weight_decay"] = Parameter(0, 0.1, is_int=False)
+        params["lr"] = Parameter(1e-16, 0.1, is_int=False, log_scale=True)
+        params["momentum"] = Parameter(0, 0.99, is_int=False)
+        params["weight_decay"] = Parameter(0.000005, 0.005, is_int=False, log_scale=True)
+        fixed_policy = {"type": "fixed"}
+        exp_policy = {"type": "exp",
+                      "gamma": Parameter(0.8, 1., is_int=False)}
+        step_policy = {"type": "step",
+                      "gamma": Parameter(0.8, 1., is_int=False),
+                      "stepsize": Parameter(2, 20, is_int=True)}
+        inv_policy = {"type": "inv",
+                      "gamma": Parameter(0.001, 100, is_int=False),
+                      "power": Parameter(0.000001, 1, is_int=False)}
+        params["lr_policy"] = [fixed_policy,
+                               exp_policy,
+                               step_policy,
+                               inv_policy]
         return params
 
     def get_conv_layer_subspace(self, layer_idx):
         params = {}
         params["type"] = "conv"
-        params["kernelsize"] = Parameter(2, 5, is_int=True)
+        params["kernelsize"] = Parameter(2, 6, is_int=True)
         params["num_output"] = Parameter(5, 500, is_int=True)
-        params["stride"] = Parameter(1, 3, is_int=True)
+        #params["stride"] = Parameter(1, 5, is_int=True)
+        params["stride"] =  1
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.01, 10, is_int=False)},
+                                    "std": Parameter(0.00001, 1, log_scale=True, is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.01, 10, is_int=False)}]
+                                    "std": Parameter(0.00001, 1, log_scale=True, is_int=False)}]
         params["weight-lr-multiplier"] = Parameter(0.01, 10, is_int=False)
         params["bias-lr-multiplier"] = Parameter(0.01, 10, is_int=False)
         params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
         params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
-        #TODO: pooling layer
+        no_pooling = {"type": "none"}
+        max_pooling = {"type": "max",
+                       "stride": Parameter(1, 3, is_int=True),
+                       "kernelsize": Parameter(2, 5, is_int=True)}
+        #        stochastic_pooling = {"type": "stochastic"}
+        params["pooling"] = [no_pooling,
+                             max_pooling]
         return params
 
     def get_fc_layer_subspace(self, layer_idx):
@@ -81,12 +104,12 @@ class ConvNetSearchSpace(object):
         params = {}
         params["type"] = "fc"
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.01, 10, is_int=False)},
+                                    "std": Parameter(0.00001, 1, log_scale=True, is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.01, 10, is_int=False)}]
+                                    "std": Parameter(0.00001, 1, log_scale=True, is_int=False)}]
         params["weight-lr-multiplier"] = Parameter(0.01, 10, is_int=False)
         params["bias-lr-multiplier"] = Parameter(0.01, 10, is_int=False)
-        params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
+        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
         params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
 
 
@@ -105,4 +128,24 @@ class ConvNetSearchSpace(object):
             params["dropout"] = {"use_dropout": False}
 
         return params
+
+    def get_parameter_count(self):
+        #TODO: calculate the parameter count
+        pass
+
+
+class LeNet5(ConvNetSearchSpace):
+    """
+        A search space, where the architecture is fixed
+        and only the network parameters, like the learning rate,
+        are tuned.
+    """
+
+    def get_conv_layer_subspace(self, layer_idx):
+        #TODO: implement
+        pass
+
+    def get_fc_layer_subspace(self, layer_idx):
+        #TODO: implement!
+        pass
 
