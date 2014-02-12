@@ -50,10 +50,14 @@ class ConvNetSearchSpace(object):
         self.max_conv_layers = max_conv_layers
         self.max_fc_layers = max_fc_layers
         self.num_classes = num_classes
+        #note: the input_dimensions are not used right now
         self.input_dimensions = input_dimensions
 
     def get_network_parameter_subspace(self):
         params = {}
+        params["num_conv_layers"] = Parameter(0, self.max_conv_layers, is_int=True)
+        #note we need at least one fc layer
+        params["num_fc_layers"] = Parameter(1, self.max_fc_layers, is_int=True)
         params["lr"] = Parameter(1e-16, 0.1, is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.005, is_int=False, log_scale=True)

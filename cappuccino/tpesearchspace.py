@@ -56,7 +56,7 @@ def parameter_to_tpe(label, parameter):
                                  parameter.max_val)
 
 
-def convnet_space_to_tpe(label, subspace, escape_char_depth = "/", escape_char_choice = "@"):
+def subspace_to_tpe(label, subspace, escape_char_depth = "/", escape_char_choice = "@"):
     """
         Recursively convert the search space defined by dicts, lists and Parameters
         into a TPE equivalent search space.
@@ -70,7 +70,7 @@ def convnet_space_to_tpe(label, subspace, escape_char_depth = "/", escape_char_c
         converted_space = {}
         for item_name, item in subspace.iteritems():
             nested_label = encode_tree_path(label, escape_char_depth, item_name)
-            converted_item = convnet_space_to_tpe(nested_label,
+            converted_item = subspace_to_tpe(nested_label,
                                                   item)
             converted_space[nested_label] = converted_item
         return converted_space
@@ -80,7 +80,7 @@ def convnet_space_to_tpe(label, subspace, escape_char_depth = "/", escape_char_c
             assert("type" in item)
             item_type = item["type"]
             item_label = encode_tree_path(label, escape_char_choice, item_type)
-            items.append(convnet_space_to_tpe(item_label, item))
+            items.append(subspace_to_tpe(item_label, item))
         return hp.choice(label, items)
     if isinstance(subspace, Parameter):
         return parameter_to_tpe(label, subspace)
@@ -103,55 +103,64 @@ def get_stacked_layers_subspace(layer_subspaces):
     return layer_combinations
 
 
-class TPEConvNetSearchSpace(ConvNetSearchSpace):
-    def __init__(self, **kwargs):
-        super(TPEConvNetSearchSpace, self).__init__(**kwargs)
+def to_tpe(convnet_space):
+    """
+        Convert a search space defined as ConvNetSearchSpace
+        to the TPE format.
+    """
+#    assert(isinstance(convnet_space, ConvNetSearchSpace))
+    params = []
 
-    def get_tpe_search_space(self):
-        params = []
-        #Convolutional layers:
-        conv_layer_subspaces = []
-        #Note: we also allow for no conv layers.
+    network_params = convnet_space.get_network_parameter_subspace()
+    assert network_params["num_conv_layers"].min_val == 0
+    assert network_params["num_fc_layers"].min_val == 1
+    network_param_subspace = subspace_to_tpe("network", network_params)
+    params.append(network_param_subspace)
 
-        for layer_id in range(self.max_conv_layers):
-            conv_layer_params = self.get_conv_layer_subspace(layer_id)
-            label = "conv-layer-%d" % (layer_id+1)
-            conv_layer_subspace = convnet_space_to_tpe(label,
-                                                            conv_layer_params)
-            conv_layer_subspaces.append(conv_layer_subspace)
+    #Convolutional layers:
+    conv_layer_subspaces = []
 
-        conv_layers_combinations = get_stacked_layers_subspace(conv_layer_subspaces)
-        conv_layers_space = hp.choice("conv-layers",
-                                      conv_layers_combinations)
-        params.append(conv_layers_space)
+    for layer_id in range(convnet_space.max_conv_layers):
+        conv_layer_params = convnet_space.get_conv_layer_subspace(layer_id)
+        label = "conv-layer-%d" % (layer_id+1)
+        conv_layer_subspace = subspace_to_tpe(label,
+                                                        conv_layer_params)
+        conv_layer_subspaces.append(conv_layer_subspace)
 
-        #Fully connected layers
-        fc_layer_subspaces = []
+    conv_layers_combinations = get_stacked_layers_subspace(conv_layer_subspaces)
+#    conv_layers_space = hp.choice("conv-layers",
+#                                  conv_layers_combinations)
 
-        for layer_id in range(self.max_fc_layers):
-            fc_layer_params = self.get_fc_layer_subspace(layer_id)
-            label = "fc-layer-%d" % (layer_id+1)
-            fc_layer_subspace = convnet_space_to_tpe(label,
-                                                        fc_layer_params)
-            fc_layer_subspaces.append(fc_layer_subspace)
+    conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
+                                     None,#no conv layers
+                                     *conv_layers_combinations)
+    params.append(conv_layers_space)
 
-        """
-            We always want the last layer to show up, because it has special parameters.
-            [[fc3], [fc2, fc3], [fc1, fc2, fc3]]
-        """
-        fc_layer_subspaces.reverse()
+    #Fully connected layers
+    fc_layer_subspaces = []
 
-        fc_layers_combinations = get_stacked_layers_subspace(fc_layer_subspaces)
-        fc_layers_space = hp.choice("fc-layers",
-                                     fc_layers_combinations)
-        params.append(fc_layers_space)
+    for layer_id in range(convnet_space.max_fc_layers):
+        fc_layer_params = convnet_space.get_fc_layer_subspace(layer_id)
+        label = "fc-layer-%d" % (layer_id+1)
+        fc_layer_subspace = subspace_to_tpe(label,
+                                                    fc_layer_params)
+        fc_layer_subspaces.append(fc_layer_subspace)
 
-        network_param_subspace = self.get_network_parameter_subspace()
-        params.append(convnet_space_to_tpe("network", network_param_subspace))
+    """
+        We always want the last layer to show up, because it has special parameters.
+        [[fc3], [fc2, fc3], [fc1, fc2, fc3]]
+    """
+    fc_layer_subspaces.reverse()
 
-        return params
+    fc_layers_combinations = get_stacked_layers_subspace(fc_layer_subspaces)
+#    fc_layers_space = hp.choice("fc-layers",
+#                                 fc_layers_combinations)
+    fc_layers_space = scope.switch(scope.int(network_param_subspace["network/num_fc_layers"]),
+                                     None,#no fc layers
+                                     *fc_layers_combinations)
+    params.append(fc_layers_space)
 
 
-    def tpe_sample_to_caffe_convnet(self):
-        pass
+    params.append(fc_layers_space)
+    return params
 
