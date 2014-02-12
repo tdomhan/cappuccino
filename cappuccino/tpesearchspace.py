@@ -1,7 +1,28 @@
 from cappuccino import ConvNetSearchSpace, Parameter
 from hyperopt import hp
+from hyperopt.pyll import scope
 from math import log
 
+"""
+TODO:
+use the scope for determining the number of layers:
+    e.g.: 
+from hyperopt.pyll import scope
+
+depth = hp.quniform('depth', 0, 5, 1)
+space = scope.switch(scope.int(depth),
+    {'depth': 0, 'log_base_epsilon_0': log_base_epsilon_0, 'weight_norm_0': weight_norm_0, 'dropout_0': dropout_0},
+
+    {'depth': 1, 'log_base_epsilon_0': log_base_epsilon_0, 'weight_norm_0': weight_norm_0, 'dropout_0': dropout_0,
+ ...
+ }
+
+"""
+
+"""
+TODO: go from class to function design:
+        convert_to_tpe(space, ...)
+"""
 
 def encode_tree_path(label, escape_char, item_name):
     assert(escape_char not in item_name), "%s contains the escape char: %s" % (item_name, escape_char)

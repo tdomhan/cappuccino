@@ -20,6 +20,7 @@ class Parameter:
         return self.__str__()
 
 
+#TODO: make the depth a hyperparameter that can also be set to be constant
 class ConvNetSearchSpace(object):
     """
         Search space for a convolutional neural network.
@@ -90,9 +91,15 @@ class ConvNetSearchSpace(object):
         max_pooling = {"type": "max",
                        "stride": Parameter(1, 3, is_int=True),
                        "kernelsize": Parameter(2, 5, is_int=True)}
+        #average pooling:
+        ave_pooling = {"type": "ave",
+                       "stride": Parameter(1, 3, is_int=True),
+                       "kernelsize": Parameter(2, 5, is_int=True)}
+
         #        stochastic_pooling = {"type": "stochastic"}
         params["pooling"] = [no_pooling,
-                             max_pooling]
+                             max_pooling,
+                             ave_pooling]
         return params
 
     def get_fc_layer_subspace(self, layer_idx):
@@ -139,13 +146,46 @@ class LeNet5(ConvNetSearchSpace):
         A search space, where the architecture is fixed
         and only the network parameters, like the learning rate,
         are tuned.
+
+        For the definition of LeNet-5 see:
+        http://yann.lecun.com/exdb/publis/pdf/lecun-98.pdf
     """
 
+    def __init__(self):
+        super(LeNet5, self).__init__(max_conv_layers=2,
+                                     max_fc_layers=2,
+                                     num_classes=10,
+                                     input_dimensions=(32,1,1))
+
+    def get_network_parameter_subspace(self):
+        #we don't change the network parameters
+        return super(LeNet5, self).get_network_parameter_subspace()
+
     def get_conv_layer_subspace(self, layer_idx):
-        #TODO: implement
-        pass
+        params = super(LeNet5, self).get_conv_layer_subspace(layer_idx)
+        if layer_idx == 0:
+            params["kernelsize"] = 5
+            params["stride"] = 1
+            params["num_output"] = 6
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 2}
+        elif layer_idx == 1:
+            params["kernelsize"] = 5
+            params["stride"] = 1
+            params["num_output"] = 16
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 2}
+ 
+        return params
 
     def get_fc_layer_subspace(self, layer_idx):
-        #TODO: implement!
-        pass
+        params = super(LeNet5, self).get_fc_layer_subspace(layer_idx)
+        if layer_idx == 0:
+            params["num_output"] = 120
+        elif layer_idx == 1:
+            params["num_output"] = 84
+
+        return params
 

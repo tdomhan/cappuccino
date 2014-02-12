@@ -16,7 +16,8 @@ class CaffeConvNet(object):
                  batch_size_train = 128,
                  batch_size_valid = 100,
                  test_interval = 100,
-                 device_id=0):
+                 device = "GPU",
+                 device_id = 0):
         """
             Parameters of the network as defined by ConvNetSearchSpace.
 
@@ -29,6 +30,7 @@ class CaffeConvNet(object):
             batch_size_train: the batch size during training
             batch_size_test: the batch size during testing
             test_interval: the number of iterations between running the network on the test set
+            device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
         """
         self._train_file = train_file
@@ -40,6 +42,8 @@ class CaffeConvNet(object):
         self._batch_size_valid = batch_size_valid
         self._num_validation_set_batches = num_validation_set_batches
         self._test_interval = test_interval
+        assert device in ["CPU", "GPU"]
+        self._device = device
         self._device_id = device_id
 
         self._base_name = "caffenet"
@@ -184,7 +188,9 @@ class CaffeConvNet(object):
 
         # Pooling
         pooling_params = params.pop("pooling")
-        if pooling_params["type"] == "max":
+        if pooling_params["type"] == "none":
+            pass
+        elif pooling_params["type"] == "max":
             caffe_pool_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "pool"
@@ -197,6 +203,21 @@ class CaffeConvNet(object):
             caffe_pool_layer.layer.stride = int(pooling_params["stride"])
 
             prev_layer_name = current_layer_name
+        elif pooling_params["type"] == "ave":
+            caffe_pool_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "pool"
+            caffe_pool_layer.layer.name = current_layer_name
+            caffe_pool_layer.layer.type = "pool"
+            caffe_pool_layer.bottom.append(prev_layer_name)
+            caffe_pool_layer.top.append(current_layer_name)
+            caffe_pool_layer.layer.pool = caffe_pool_layer.layer.AVE
+            caffe_pool_layer.layer.kernelsize = int(pooling_params["kernelsize"])
+            caffe_pool_layer.layer.stride = int(pooling_params["stride"])
+
+            prev_layer_name = current_layer_name
+
+
 
         #TODO; normlization layer
         #TODO; padding layer
@@ -284,10 +305,14 @@ class CaffeConvNet(object):
 
         #TODO: make parameter
         self._solver.test_interval = self._test_interval
-        self._solver.display = 100
+        self._solver.display = 10
         self._solver.snapshot = 10000000
         self._solver.snapshot_prefix = "caffenet"
-        self._solver.device_id = self._device_id
+        if self._device == "CPU":
+            self._solver.solver_mode = 0
+        elif self._device == "GPU":
+            self._solver.solver_mode = 1
+            self._solver.device_id = self._device_id
 
         assert len(params) == 0, "More solver parameters given than needed: " + str(params)
 
