@@ -69,13 +69,63 @@ def group_layers(params_tree):
     fc_layers = sorted(fc_layers)
 
     #remove indices:
-    conv_layers = list(zip(*conv_layers)[1])
+    if len(conv_layers) > 0:
+        conv_layers = list(zip(*conv_layers)[1])
     #remove indices:
-    fc_layers = list(zip(*fc_layers)[1])
+    if len(fc_layers):
+        fc_layers = list(zip(*fc_layers)[1])
 
     network_params = params_tree["network"]
 
-    return (conv_layers, fc_layers, network_params)
+    preprocessing_params = params_tree["preprocessing"]
+
+    return (preprocessing_params, conv_layers, fc_layers, network_params)
 
 
+def flatten_to_leaves(params):
+    """
+        Parameters are given as a tree dict-of-dicts.
+        The tree will be flattened by returning a dict of
+        the leave key-values.
+
+        Example:
+            {"level1": {"level2-leaf-1": value, "level2-leaf-2": another_value}}
+            will return:
+            {"level2-leaf-1": value, "level2-leaf-2": another_value}
+
+        Note: The leave keys are expected to be unique!
+    """
+    if isinstance(params, dict):
+        flattened_params = {}
+        for key, value in params.iteritems():
+            if isinstance(value, dict):
+                flattened_leave = flatten_to_leaves(value)
+                for leave_key, leave_value in flattened_leave.iteritems():
+                    assert leave_key not in flattened_params, "The keys at the leaves must be unique! %s" % leave_key
+                    flattened_params[leave_key] = leave_value
+            else:
+                assert key not in flattened_params
+                flattened_params[key] = value
+        return flattened_params
+    elif isinstance(params, (list, tuple)):
+        flattened_params = {}
+        for value in params:
+            flattened_leave = flatten_to_leaves(value)
+            assert isinstance(flattened_leave, dict)
+            for leave_key, leave_value in flattened_leave.iteritems():
+                assert leave_key not in flattened_params, "The keys at the leaves must be unique! %s" % leave_key
+                flattened_params[leave_key] = leave_value
+        return flattened_params
+    else:
+        return params
+
+
+
+def hpolib_to_caffenet(params):
+    """
+        Convert the parameters provided by HPOLib into the caffenet format.
+    """
+    param_tree = construct_parameter_tree_from_labels(params)
+    caffe_convnet_params = group_layers(param_tree)
+    return caffe_convnet_params
 

@@ -1,5 +1,6 @@
 import fcntl
 import json
+import os
 
 def store_result(dirname, params, result, learning_curve):
     """

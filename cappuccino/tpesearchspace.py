@@ -1,28 +1,9 @@
-from cappuccino import ConvNetSearchSpace, Parameter
+from cappuccino.convnetsearchspace import ConvNetSearchSpace, Parameter
 from hyperopt import hp
 from hyperopt.pyll import scope
+from paramutil import flatten_to_leaves, construct_parameter_tree_from_labels, group_layers
 from math import log
 
-"""
-TODO:
-use the scope for determining the number of layers:
-    e.g.: 
-from hyperopt.pyll import scope
-
-depth = hp.quniform('depth', 0, 5, 1)
-space = scope.switch(scope.int(depth),
-    {'depth': 0, 'log_base_epsilon_0': log_base_epsilon_0, 'weight_norm_0': weight_norm_0, 'dropout_0': dropout_0},
-
-    {'depth': 1, 'log_base_epsilon_0': log_base_epsilon_0, 'weight_norm_0': weight_norm_0, 'dropout_0': dropout_0,
- ...
- }
-
-"""
-
-"""
-TODO: go from class to function design:
-        convert_to_tpe(space, ...)
-"""
 
 def encode_tree_path(label, escape_char, item_name):
     assert(escape_char not in item_name), "%s contains the escape char: %s" % (item_name, escape_char)
@@ -103,17 +84,24 @@ def get_stacked_layers_subspace(layer_subspaces):
     return layer_combinations
 
 
-def to_tpe(convnet_space):
+def convnet_space_to_tpe(convnet_space):
     """
         Convert a search space defined as ConvNetSearchSpace
         to the TPE format.
+
+        returns: search space in the TPE format.
     """
 #    assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
 
+    preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()
+    params.append(subspace_to_tpe("preprocessing", preprocessing_params))
+
     network_params = convnet_space.get_network_parameter_subspace()
-    assert network_params["num_conv_layers"].min_val == 0
-    assert network_params["num_fc_layers"].min_val == 1
+    if isinstance(network_params["num_conv_layers"], Parameter):
+        assert network_params["num_conv_layers"].min_val == 0
+    if isinstance(network_params["num_fc_layers"], Parameter):
+        assert network_params["num_fc_layers"].min_val == 1
     network_param_subspace = subspace_to_tpe("network", network_params)
     params.append(network_param_subspace)
 
@@ -132,7 +120,7 @@ def to_tpe(convnet_space):
 #                                  conv_layers_combinations)
 
     conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
-                                     None,#no conv layers
+                                     [],#no conv layers
                                      *conv_layers_combinations)
     params.append(conv_layers_space)
 
@@ -160,7 +148,23 @@ def to_tpe(convnet_space):
                                      *fc_layers_combinations)
     params.append(fc_layers_space)
 
-
-    params.append(fc_layers_space)
     return params
+
+
+def tpe_sample_to_caffenet(params):
+    """
+        Convert a parameter space sample from hyperopt
+        into a format that caffe convnet understands.
+
+        e.g.
+        ({'preprocessing/mirror': {'preprocessing/mirror@off/type': 'off'}, 'preprocessing/crop': {'preprocessing/crop@none/type': 'none'}}, {'network/lr_policy': {'network/lr_policy@step/gamma': 0.9996274933033295, 'network/lr_policy@step/stepsize': 7.0, 'network/lr_policy@step/type': 'step'}, 'network/num_conv_layers': 0.0, 'network/momentum': 0.3701715323213701, 'network/lr': 0.0014660061654956985, 'network/weight_decay': 0.004909933297030581, 'network/num_fc_layers': 1.0}, (), ({'fc-layer-3/dropout': {'fc-layer-3/dropout/use_dropout': False}, 'fc-layer-3/weight-filler': {'fc-layer-3/weight-filler@gaussian/type': 'gaussian', 'fc-layer-3/weight-filler@gaussian/std': 2.9735970882233542e-05}, 'fc-layer-3/weight-lr-multiplier': 6.467391614940038, 'fc-layer-3/bias-lr-multiplier': 4.594272344706693, 'fc-layer-3/bias-filler': {'fc-layer-3/bias-filler@const-zero/type': 'const-zero'}, 'fc-layer-3/num_output': 10, 'fc-layer-3/activation': 'none', 'fc-layer-3/type': 'fc'},), ({'fc-layer-3/dropout': {'fc-layer-3/dropout/use_dropout': False}, 'fc-layer-3/weight-filler': {'fc-layer-3/weight-filler@gaussian/type': 'gaussian', 'fc-layer-3/weight-filler@gaussian/std': 2.9735970882233542e-05}, 'fc-layer-3/weight-lr-multiplier': 6.467391614940038, 'fc-layer-3/bias-lr-multiplier': 4.594272344706693, 'fc-layer-3/bias-filler': {'fc-layer-3/bias-filler@const-zero/type': 'const-zero'}, 'fc-layer-3/num_output': 10, 'fc-layer-3/activation': 'none', 'fc-layer-3/type': 'fc'},))
+    """
+    # Note, we first flatten and then go back to a tree
+    # This is due to the fact that hpolib can only handle
+    # flat parameters. Therefore the labels contain the full
+    # tree path.
+    flattened_params = flatten_to_leaves(params)
+    param_tree = construct_parameter_tree_from_labels(flattened_params)
+    caffe_convnet_params = group_layers(param_tree)
+    return caffe_convnet_params
 

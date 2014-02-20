@@ -64,9 +64,12 @@ class CaffeConvNet(object):
         self._caffe_net = caffe_pb2.NetParameter()
         self._solver = caffe_pb2.SolverParameter()
 
-        self._create_data_layer()
+        preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
 
-        all_conv_layers_params, all_fc_layers_params, network_params = params
+        self._create_data_layer(preproc_params)
+
+        assert len(all_conv_layers_params) == network_params['num_conv_layers']
+        assert len(all_fc_layers_params) == network_params['num_fc_layers']
 
         prev_layer_name = "data"
         for i, conv_layer_params in enumerate(all_conv_layers_params):
@@ -110,6 +113,8 @@ class CaffeConvNet(object):
         self._caffe_net_validation.layers[0].layer.batchsize = self._batch_size_valid
         if self._mean_file:
             self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
+        #turn off mirroring:
+        self._caffe_net_validation.layers[0].layer.mirror = False
 
         #softmax layer:
         last_layer_top = self._caffe_net_validation.layers[-1].top[0]
@@ -128,7 +133,7 @@ class CaffeConvNet(object):
         prob_layer.top.append("accuracy")
 
 
-    def _create_data_layer(self):
+    def _create_data_layer(self, params):
         data_layer = self._caffe_net.layers.add()
         data_layer.layer.name = "data"
         data_layer.layer.type = "data"
@@ -136,6 +141,17 @@ class CaffeConvNet(object):
             data_layer.layer.scale = self._scale_factor
         data_layer.top.append("data")
         data_layer.top.append("label")
+
+        if params["mirror"]["type"] == "on":
+            #note: will be turned off for the validation layer
+            data_layer.layer.mirror = True
+        else:
+            data_layer.layer.mirror = False
+
+        if params["crop"]["type"] == "square_crop":
+            #note: will be turned off for the validation layer
+            data_layer.layer.cropsize = int(params["crop"]["crop_size"])
+
 
     def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params):
         """
@@ -146,12 +162,28 @@ class CaffeConvNet(object):
 
         #Convolution
         assert params.pop("type") == "conv"
+
+        padding_params = params.pop("padding")
+        if padding_params["type"] == "zero-padding":
+            caffe_pad_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "pad"
+            caffe_pad_layer.layer.name = current_layer_name
+            caffe_pad_layer.layer.type = "padding"
+            caffe_pad_layer.layer.pad = int(padding_params["size"])
+            caffe_pad_layer.bottom.append(prev_layer_name)
+            #Note: the operation is made in-place by using the same name twice
+            caffe_pad_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+
+
         caffe_conv_layer = self._caffe_net.layers.add()
         current_layer_name = current_layer_base_name + "conv"
         caffe_conv_layer.layer.name = current_layer_name
         caffe_conv_layer.layer.type = "conv"
         caffe_conv_layer.layer.kernelsize = int(params.pop("kernelsize")) 
-        caffe_conv_layer.layer.num_output = int(params.pop("num_output"))
+        caffe_conv_layer.layer.num_output = int(params.pop("num_output_x_128")) * 128
         caffe_conv_layer.layer.stride = int(params.pop("stride"))
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_conv_layer.layer.weight_filler
@@ -159,7 +191,14 @@ class CaffeConvNet(object):
             setattr(weight_filler, param, param_val)
 
         caffe_conv_layer.layer.bias_filler.type = "constant"
-        caffe_conv_layer.layer.bias_filler.value = 0
+        bias_filler_params = params.pop("bias-filler")
+        if bias_filler_params["type"] == "const-zero":
+            caffe_conv_layer.layer.bias_filler.value = 0.
+        elif bias_filler_params["type"] == "const-one":
+            caffe_conv_layer.layer.bias_filler.value = 1.
+        else:
+            raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
+
 #        bias_filler_params = params.pop("bias-filler")
 #        bias_filler = caffe_conv_layer.layer.bias_filler
 #        for param, param_val in bias_filler_params.iteritems():
@@ -182,9 +221,8 @@ class CaffeConvNet(object):
         caffe_relu_layer.layer.name = current_layer_name
         caffe_relu_layer.layer.type = "relu"
         caffe_relu_layer.bottom.append(prev_layer_name)
-        caffe_relu_layer.top.append(current_layer_name)
-
-        prev_layer_name = current_layer_name
+        #Note: the operation is made in-place by using the same name twice
+        caffe_relu_layer.top.append(prev_layer_name)
 
         # Pooling
         pooling_params = params.pop("pooling")
@@ -229,13 +267,24 @@ class CaffeConvNet(object):
     def _create_fc_layer(self, current_layer_base_name, prev_layer_name, params):
         caffe_fc_layer = self._caffe_net.layers.add()
 
+        assert params.pop("type") == "fc"
+
         current_layer_name = current_layer_base_name + "fc"
         caffe_fc_layer.layer.name = current_layer_name
         caffe_fc_layer.layer.type = "innerproduct"
         caffe_fc_layer.bottom.append(prev_layer_name)
         caffe_fc_layer.top.append(current_layer_name)
 
-        caffe_fc_layer.layer.num_output = int(params.pop("num_output"))
+        if "num_output_x_128" in params:
+            caffe_fc_layer.layer.num_output = int(params.pop("num_output_x_128")) * 128
+        elif "num_output" in params:
+            caffe_fc_layer.layer.num_output = int(params.pop("num_output")) 
+
+        caffe_fc_layer.layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
+        caffe_fc_layer.layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
+
+        caffe_fc_layer.layer.weight_decay.append(1)
+        caffe_fc_layer.layer.weight_decay.append(0)
 
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_fc_layer.layer.weight_filler
@@ -243,7 +292,14 @@ class CaffeConvNet(object):
             setattr(weight_filler, param, param_val)
 
         caffe_fc_layer.layer.bias_filler.type = "constant"
-        caffe_fc_layer.layer.bias_filler.value = 0
+        bias_filler_params = params.pop("bias-filler")
+        if bias_filler_params["type"] == "const-zero":
+            caffe_fc_layer.layer.bias_filler.value = 0.
+        elif bias_filler_params["type"] == "const-one":
+            caffe_fc_layer.layer.bias_filler.value = 1.
+        else:
+            raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
+
 
         prev_layer_name = current_layer_name
 
@@ -255,9 +311,9 @@ class CaffeConvNet(object):
             caffe_relu_layer.layer.name = current_layer_name
             caffe_relu_layer.layer.type = "relu"
             caffe_relu_layer.bottom.append(prev_layer_name)
-            caffe_relu_layer.top.append(current_layer_name)
+            #Note: the operation is made in-place by using the same name twice
+            caffe_relu_layer.top.append(prev_layer_name)
 
-            prev_layer_name = current_layer_name
 
         #Dropout
         dropout_params = params.pop("dropout")
@@ -273,11 +329,13 @@ class CaffeConvNet(object):
 
             prev_layer_name = current_layer_name
 
-#        assert len(params) == 0, "More fc layer parameters given than needed: " + str(params)
+        assert len(params) == 0, "More fc layer parameters given than needed: " + str(params)
 
         return prev_layer_name
 
     def _create_network_parameters(self, params):
+        params.pop("num_conv_layers")
+        params.pop("num_fc_layers")
         self._solver.base_lr = params.pop("lr")
         lr_policy_params = params.pop("lr_policy")
         lr_policy = lr_policy_params.pop("type")
@@ -288,7 +346,7 @@ class CaffeConvNet(object):
             self._solver.gamma = lr_policy_params.pop("gamma")
         elif lr_policy == "step":
             self._solver.gamma = lr_policy_params.pop("gamma")
-            self._solver.stepsize = lr_policy_params.pop("stepsize")
+            self._solver.stepsize = int(lr_policy_params.pop("stepsize"))
         elif lr_policy == "inv":
             self._solver.gamma = lr_policy_params.pop("gamma")
             self._solver.power = lr_policy_params.pop("power")
