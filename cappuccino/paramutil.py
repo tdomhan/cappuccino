@@ -10,10 +10,12 @@ def value_to_literal(value):
     except:
         return value
 
-def construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape_char_choice = "@"):
+def construct_parameter_tree_from_labels(params,
+                                         escape_char_depth = "/",
+                                         escape_char_choice = "@"):
     """
         Given a dictionary of {label: parameter}, where label encodes the
-        depth in the parameter tree, e.g. level0#level1#level2
+        depth in the parameter tree, e.g. level0/level1/level2
         as well as the selected choice parametere, e.g. level0#choice@selectedval
         We convert this back to a tree of parameter values in order to feed it
         to a target algorithm.
@@ -42,7 +44,7 @@ def construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape
                 if not step in current_node:
                     current_node[step] = {}
                 current_node = current_node[step]
-                if node_type:
+                if node_type is not None:
                     current_node["type"] = node_type
 
     return param_tree

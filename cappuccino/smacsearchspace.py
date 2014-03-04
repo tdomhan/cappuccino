@@ -1,4 +1,5 @@
 from cappuccino.convnetsearchspace import ConvNetSearchSpace, Parameter
+from cappuccino.paramutil import construct_parameter_tree_from_labels, group_layers
 import copy
 
 def encode_tree_path(label, escape_char, item_name):
@@ -100,12 +101,15 @@ def subspace_to_smac(label, params, subspace, dependencies=[], escape_char_depth
             subspace_to_smac(nested_label, params, item, dependencies, escape_char_depth, escape_char_choice)
     elif isinstance(subspace, list):
         #add another variable to encode the choice:
-        choice_param = SMACCategorialParameter(name=label, values=range(0, len(subspace)))
+        types = [item["type"] for item in subspace if "type" in item]
+        #choice_param = SMACCategorialParameter(name=label, values=range(0, len(subspace)))
+        choice_param = SMACCategorialParameter(name=label+escape_char_depth+"type", values=types)
         params.append(choice_param)
         for idx, item in enumerate(subspace):
             assert("type" in item)
-            item_type = item["type"]
-            dependency = SMACDependency(choice_param.name, values=[idx])
+            item_type = item.pop("type")
+            #dependency = SMACDependency(choice_param.name, values=[idx])
+            dependency = SMACDependency(choice_param.name, values=[item_type])
             item_dependencies = copy.deepcopy(dependencies)
             item_dependencies.append(dependency)
             item_label = encode_tree_path(label, escape_char_choice, item_type)
@@ -219,6 +223,18 @@ def smac_space_to_str(smac_space):
         for dependency in param.depends_on:
             lines.append(param.name + str(dependency))
     return "\n".join(lines)
+
+
+def smac_sample_to_caffenet(params):
+    """
+        Convert a sample from smac into the format needed by the CaffeNet.
+        params: dict of the form: {param_name: value}
+                (param_name encodes the tree path, e.g. "network/conv-layer-1/weight-filler")
+    """
+    param_tree = construct_parameter_tree_from_labels(params)
+    caffe_convnet_params = group_layers(param_tree)
+    return caffe_convnet_params
+
 
 if __name__ == "__main__":
     #TODO: make this a converter script

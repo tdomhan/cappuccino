@@ -9,11 +9,18 @@ class TestParameterTreeConstruction(unittest.TestCase):
     def setUp(self):
         pass
 
-    def test_construct_tree(self):
+    def test_construct_tree_simple(self):
         params = {"convlayer0/kernelwidth": 1, "convlayer0/weight-filler@gaussian/std": 0.01}
         expected_tree = {"convlayer0": {"kernelwidth": 1, "weight-filler": {"type": "gaussian", "std": 0.01}}}
         param_tree = construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape_char_choice = "@")
 
+        self.assertDictEqual(expected_tree, param_tree)
+
+    def test_construct_tree_simple(self):
+        params =  {'fc-layer-3/weight-filler@gaussian/std': '0.002240578878878171',
+                   'fc-layer-3/weight-filler@gaussian/type': 'gaussian'}
+        expected_tree = {"fc-layer-3": {"weight-filler": {"type": "gaussian", "std": 0.002240578878878171}}}
+        param_tree = construct_parameter_tree_from_labels(params, escape_char_depth = "/", escape_char_choice = "@")
         self.assertDictEqual(expected_tree, param_tree)
 
     def test_bad_input(self):
@@ -44,11 +51,12 @@ class TestGroupLayer(unittest.TestCase):
         self.assertEqual(preprocessing, -1)
 
     def test_group_layer_no_conv(self):
-        params = {"fc-layer-3": 3, "network": 4}
+        params = {"preprocessing": 1, "fc-layer-3": 3, "network": 4}
 
-        conv_layers, fc_layers, network = group_layers(params)
+        preproc, conv_layers, fc_layers, network = group_layers(params)
         self.assertEqual(conv_layers, [])
         self.assertEqual(fc_layers, [3])
+        self.assertEqual(preproc, 1)
         self.assertEqual(network, 4)
 
 class TestFlattenParams(unittest.TestCase):

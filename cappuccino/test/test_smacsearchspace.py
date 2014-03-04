@@ -62,9 +62,8 @@ class TestSubspaceToSmac(unittest.TestCase):
         #print smac_space_to_str(smac_space)
 
         #we have 4 parameters
-        # +3 extra parameters to encode the type
         #+ 1 extra parameter that encode the conditionality
-        self.assertEqual(len(smac_space), 4+3+1)
+        self.assertEqual(len(smac_space), 4+1)
 
         for parameter in smac_space:
             self.assertTrue(isinstance(parameter, SMACParameter))
@@ -73,27 +72,20 @@ class TestSubspaceToSmac(unittest.TestCase):
         self.assertEqual(params["testspace/condspace@space1/param1"].min_val, 0)
         self.assertEqual(params["testspace/condspace@space1/param1"].max_val, 10)
 
-        self.assertTrue(isinstance(params["testspace/condspace@space1/type"], SMACCategorialParameter))
-        self.assertTrue(isinstance(params["testspace/condspace@space2/type"], SMACCategorialParameter))
-        self.assertTrue(isinstance(params["testspace/condspace@space3/type"], SMACCategorialParameter))
+        self.assertTrue(isinstance(params["testspace/condspace/type"], SMACCategorialParameter))
 
         #the type parameter is converted into a categorical parameter with only a single value:
-        self.assertTrue(params["testspace/condspace@space1/type"].values, ["space1"])
-        self.assertTrue(params["testspace/condspace@space1/type"].values, ["space2"])
-        self.assertTrue(params["testspace/condspace@space1/type"].values, ["space3"])
+        self.assertTrue(params["testspace/condspace/type"].default, "space1")
 
-        self.assertTrue(params["testspace/condspace@space1/type"].default, "space1")
-        self.assertTrue(params["testspace/condspace@space1/type"].default, "space2")
-        self.assertTrue(params["testspace/condspace@space1/type"].default, "space3")
-
-        self.assertTrue(isinstance(params["testspace/condspace"], SMACCategorialParameter))
+        self.assertTrue(isinstance(params["testspace/condspace/type"], SMACCategorialParameter))
         #there are two conditional subspaces:
-        self.assertEqual(params["testspace/condspace"].values, [0, 1, 2])
+        #self.assertEqual(params["testspace/condspace"].values, [0, 1, 2])
+        self.assertEqual(params["testspace/condspace/type"].values, ["space1", "space2", "space3"])
 
         #check for dependencies:
         self.assertEqual(len(params["testspace/condspace@space1/param1"].depends_on), 1)
         param_dependency = params["testspace/condspace@space1/param1"].depends_on[0]
-        self.assertEqual(param_dependency.parent_name, "testspace/condspace")
+        self.assertEqual(param_dependency.parent_name, "testspace/condspace/type")
         """
             SMAC dependencies need to be integers.
             By convention we convert in alphabetical order.
@@ -102,7 +94,8 @@ class TestSubspaceToSmac(unittest.TestCase):
         mapping = {"space1": 0, "space2": 1}
         #TODO: use integer to string mapping
         self.assertEqual(len(param_dependency.values), 1)
-        self.assertEqual(param_dependency.values[0], mapping["space1"])
+        #self.assertEqual(param_dependency.values[0], mapping["space1"])
+        self.assertEqual(param_dependency.values[0], "space1")
 
     def test_subspace_conversion_conv_layers(self):
         layer1 = {"type": "space1",
@@ -202,7 +195,7 @@ class TestConvNetSpaceConversion(unittest.TestCase):
         self.assertTrue("network/num_conv_layers" in params)
         self.assertTrue("network/num_fc_layers" in params)
 
-        self.assertTrue("preprocessing/augment" in params)
+        self.assertTrue("preprocessing/augment/type" in params)
 
         #check the dependencies of the layer parameters are correct
         self.check_layer_dependencies(
@@ -248,7 +241,9 @@ class TestConvNetSpaceConversion(unittest.TestCase):
             for param_name in params_to_check:
                 #we check the kernelsize, because it should always be present:
                 layer_param_name = "%s-%d/%s" % (layer_name, layer_idx, param_name)
-                self.assertTrue(layer_param_name in params, "couldn't find param %s" % layer_param_name)
+                if layer_param_name not in params:
+                    layer_param_name = "%s-%d/%s/type" % (layer_name, layer_idx, param_name)
+                    self.assertTrue(layer_param_name in params, "couldn't find param %s" % layer_param_name)
                 layer_param = params[layer_param_name]
                 #it should only depend on the number of conv layers:
                 self.assertEqual(len(layer_param.depends_on), 1)
