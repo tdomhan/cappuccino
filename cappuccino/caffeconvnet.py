@@ -1,5 +1,5 @@
 from caffe.proto import caffe_pb2
-from subprocess import check_output, call, STDOUT
+from subprocess import check_output, call, STDOUT, CalledProcessError
 import traceback
 import copy
 
@@ -10,41 +10,46 @@ class CaffeConvNet(object):
     def __init__(self, params,
                  train_file,
                  valid_file,
-                 num_validation_set_batches,
+                 num_train,
+                 num_valid,
                  mean_file=None,
                  scale_factor=None,
                  batch_size_train = 128,
                  batch_size_valid = 100,
-                 test_interval = 100,
                  device = "GPU",
-                 device_id = 0):
+                 device_id = 0,
+                 snapshot_on_exit = 0):
         """
             Parameters of the network as defined by ConvNetSearchSpace.
 
             params: parameters to the network
             train_file: the training data leveldb file
             valid_file: the validation data leveldb file
-            num_validation_set_batches: num_validation_set_batches * batch_size_test = number of training examples
+            num_train: number of examples in the train set
+            num_valid: number of examples in the validation set
             mean_file: mean per dimesnion leveldb file
             scale_factor: a factor used for scaling the input data.
             batch_size_train: the batch size during training
             batch_size_test: the batch size during testing
-            test_interval: the number of iterations between running the network on the test set
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
+            snapshot_on_exit: save network on exit?
         """
         self._train_file = train_file
         self._valid_file = valid_file
         self._mean_file = mean_file
         if scale_factor != None:
             self._scale_factor = scale_factor
+        assert num_train % batch_size_train == 0, "num_train must be a multiple of the train bach size"
+        assert num_valid % batch_size_valid == 0, "num_valid must be a multiple of the valid bach size"
         self._batch_size_train = batch_size_train
         self._batch_size_valid = batch_size_valid
-        self._num_validation_set_batches = num_validation_set_batches
-        self._test_interval = test_interval
+        self._num_train = num_train
+        self._num_valid = num_valid
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
+        self._snapshot_on_exit = snapshot_on_exit
 
         self._base_name = "caffenet"
 
@@ -142,16 +147,13 @@ class CaffeConvNet(object):
         data_layer.top.append("data")
         data_layer.top.append("label")
 
-        if params["mirror"]["type"] == "on":
+        augment_params = params["augment"]
+        if augment_params["type"] == "augment":
             #note: will be turned off for the validation layer
             data_layer.layer.mirror = True
-        else:
-            data_layer.layer.mirror = False
 
-        if params["crop"]["type"] == "square_crop":
             #note: will be turned off for the validation layer
-            data_layer.layer.cropsize = int(params["crop"]["crop_size"])
-
+            data_layer.layer.cropsize = int(augment_params["crop_size"])
 
     def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params):
         """
@@ -255,10 +257,35 @@ class CaffeConvNet(object):
 
             prev_layer_name = current_layer_name
 
+        normalization_params = params.pop("norm")
+        if normalization_params["type"] == "lrn":
+            caffe_norm_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "norm"
+            caffe_norm_layer.layer.name = current_layer_name
+            caffe_norm_layer.layer.type = "lrn"
+            caffe_norm_layer.bottom.append(prev_layer_name)
+            caffe_norm_layer.top.append(current_layer_name)
+            caffe_norm_layer.layer.local_size = int(normalization_params["local_size"])
+            caffe_norm_layer.layer.alpha = int(normalization_params["alpha"])
+            caffe_norm_layer.layer.beta = int(normalization_params["beta"])
+
+            prev_layer_name = current_layer_name
 
 
-        #TODO; normlization layer
-        #TODO; padding layer
+        #Dropout
+        dropout_params = params.pop("dropout")
+        if dropout_params["type"] == "dropout":
+            caffe_dropout_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "dropout"
+            caffe_dropout_layer.layer.name = current_layer_name
+            caffe_dropout_layer.layer.type = "dropout"
+            caffe_dropout_layer.layer.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.bottom.append(prev_layer_name)
+            caffe_dropout_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
  
         assert len(params) == 0, "More convolution parameters given than needed: " + str(params)
 
@@ -317,7 +344,7 @@ class CaffeConvNet(object):
 
         #Dropout
         dropout_params = params.pop("dropout")
-        if dropout_params["use_dropout"] == True:
+        if dropout_params["type"] == "dropout":
             caffe_dropout_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "dropout"
@@ -346,7 +373,12 @@ class CaffeConvNet(object):
             self._solver.gamma = lr_policy_params.pop("gamma")
         elif lr_policy == "step":
             self._solver.gamma = lr_policy_params.pop("gamma")
-            self._solver.stepsize = int(lr_policy_params.pop("stepsize"))
+            if "stepsize" in lr_policy_params:
+                self._solver.stepsize = int(lr_policy_params.pop("stepsize"))
+            elif "epochcount" in lr_policy_params:
+                self._solver.stepsize = int((self._num_train / self._batch_size_train) * lr_policy_params.pop("epochcount"))
+            else:
+                assert False, "Neither stepsize nor epochcount given."
         elif lr_policy == "inv":
             self._solver.gamma = lr_policy_params.pop("gamma")
             self._solver.power = lr_policy_params.pop("power")
@@ -356,14 +388,15 @@ class CaffeConvNet(object):
         self._solver.weight_decay = params.pop("weight_decay")
         self._solver.train_net = self._train_network_file
         self._solver.test_net = self._valid_network_file
-        self._solver.test_iter = self._num_validation_set_batches
-        #self._solver.max_iter = 1000
-        self._solver.termination_criterion = self._solver.TEST_ACCURACY
-        self._solver.test_accuracy_stop_countdown = 10
+        self._solver.test_iter = int(self._num_valid / self._batch_size_valid)
 
-        #TODO: make parameter
-        self._solver.test_interval = self._test_interval
-        self._solver.display = 10
+        self._solver.termination_criterion = self._solver.TEST_ACCURACY
+        #stop, when no improvement for X epoches
+        self._solver.test_accuracy_stop_countdown = 3 * 10
+
+        #test 10 times per epoch:
+        self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
+        self._solver.display = int((0.01 * self._num_train) / self._batch_size_train)
         self._solver.snapshot = 10000000
         self._solver.snapshot_prefix = "caffenet"
         if self._device == "CPU":
@@ -371,6 +404,8 @@ class CaffeConvNet(object):
         elif self._device == "GPU":
             self._solver.solver_mode = 1
             self._solver.device_id = self._device_id
+
+        self._solver.snapshot_on_exit = self._snapshot_on_exit
 
         assert len(params) == 0, "More solver parameters given than needed: " + str(params)
 
@@ -387,19 +422,22 @@ class CaffeConvNet(object):
         with open(self._valid_network_file, "w") as valid_network:
             valid_network.write(str(self._caffe_net_validation))
 
-    def run(self):
+    def run(self, hide_output=True):
         """
             Run the given network and return the best validation performance.
         """
-        return run_caffe(self._solver_file)
+        return run_caffe(self._solver_file, hide_output=hide_output)
 
 
-def run_caffe(solver_file):
+def run_caffe(solver_file, hide_output=True):
     """
         Runs caffe and returns the accuracy.
     """
     try:
-        output = check_output(["train_net.sh", solver_file])
+        if hide_output:
+            output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
+        else:
+            output = check_output(["train_net.sh", solver_file])
 
         accuracy = output.split("\n")[-1]
         if "Accuracy:" in accuracy:
@@ -408,7 +446,9 @@ def run_caffe(solver_file):
         else:
             #Failed?
             raise RuntimeError("Failed running caffe: didn't find accuracy in output")
+    except CalledProcessError as e:
+        raise RuntimeError("Failed running caffe. Return code: %s Output: %s" % (str(e.returncode), str(e.output)))
     except:
-        print "ERROR!"
-        raise RuntimeError("Failed running caffe." + traceback.format_exc())
+        print "UNKNOWN ERROR!"
+        raise RuntimeError("Unknown exception, when running caffe." + traceback.format_exc())
 

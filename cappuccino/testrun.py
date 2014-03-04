@@ -27,7 +27,7 @@ def test_fun(kwargs):
     return caffe.run()
 
 def test():
-    space = ConvNetSearchSpace((3, 32, 32))
+    space = ConvNetSearchSpace(input_dimension=(3, 32, 32))
     tpe_space = convnet_space_to_tpe(space)
     print "TPE search space"
     print tpe_space

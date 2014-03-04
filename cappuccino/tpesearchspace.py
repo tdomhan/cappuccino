@@ -4,17 +4,26 @@ from hyperopt.pyll import scope
 from paramutil import flatten_to_leaves, construct_parameter_tree_from_labels, group_layers
 from math import log
 
+"""
+Unit-tests
+----------
+TODO: How could we unit-test the conversion between spaces?
+ * Test that the leaves are either: float, int, Parameter and other values that we expected
+ * Test number of elements in returned from the space
+ * Test whether necessary elements are part of the hyperparameter space
+ * Test conversion of very simple space, that contains all the necessary elements.
+"""
+
 
 def encode_tree_path(label, escape_char, item_name):
+    """returns the nested tree path."""
     assert(escape_char not in item_name), "%s contains the escape char: %s" % (item_name, escape_char)
     nested_label = label + escape_char + item_name
     return nested_label
 
 
 def parameter_to_tpe(label, parameter):
-    """
-        returns the parameter in TPE format.
-    """
+    """returns the parameter in TPE format."""
     if parameter.is_int:
         if parameter.log_scale:
             return hp.qloguniform(label,
@@ -52,7 +61,9 @@ def subspace_to_tpe(label, subspace, escape_char_depth = "/", escape_char_choice
         for item_name, item in subspace.iteritems():
             nested_label = encode_tree_path(label, escape_char_depth, item_name)
             converted_item = subspace_to_tpe(nested_label,
-                                                  item)
+                                             item,
+                                             escape_char_depth,
+                                             escape_char_choice)
             converted_space[nested_label] = converted_item
         return converted_space
     if isinstance(subspace, list):
@@ -61,7 +72,10 @@ def subspace_to_tpe(label, subspace, escape_char_depth = "/", escape_char_choice
             assert("type" in item)
             item_type = item["type"]
             item_label = encode_tree_path(label, escape_char_choice, item_type)
-            items.append(subspace_to_tpe(item_label, item))
+            items.append(subspace_to_tpe(item_label,
+                                         item,
+                                         escape_char_depth,
+                                         escape_char_choice))
         return hp.choice(label, items)
     if isinstance(subspace, Parameter):
         return parameter_to_tpe(label, subspace)
@@ -102,34 +116,54 @@ def convnet_space_to_tpe(convnet_space):
         assert network_params["num_conv_layers"].min_val == 0
     if isinstance(network_params["num_fc_layers"], Parameter):
         assert network_params["num_fc_layers"].min_val == 1
+
+    #in hyperopt we will represent the number of conv layers as a choice object
+    #that's why we can strip them here:
+    num_conv_layers = network_params.pop("num_conv_layers")
+    num_fc_layers = network_params.pop("num_fc_layers")
+
     network_param_subspace = subspace_to_tpe("network", network_params)
     params.append(network_param_subspace)
 
     #Convolutional layers:
     conv_layer_subspaces = []
 
-    for layer_id in range(convnet_space.max_conv_layers):
+    for layer_id in range(1, convnet_space.max_conv_layers+1):
         conv_layer_params = convnet_space.get_conv_layer_subspace(layer_id)
-        label = "conv-layer-%d" % (layer_id+1)
+        label = "conv-layer-%d" % (layer_id)
         conv_layer_subspace = subspace_to_tpe(label,
-                                                        conv_layer_params)
+                                              conv_layer_params)
         conv_layer_subspaces.append(conv_layer_subspace)
 
-    conv_layers_combinations = get_stacked_layers_subspace(conv_layer_subspaces)
-#    conv_layers_space = hp.choice("conv-layers",
-#                                  conv_layers_combinations)
 
-    conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
-                                     [],#no conv layers
-                                     *conv_layers_combinations)
+    #to stay consistent with the fc layers we reverse the order, see below
+    conv_layer_subspaces.reverse()
+
+    conv_layers_combinations = get_stacked_layers_subspace(conv_layer_subspaces)
+
+    conv_layers_combinations.insert(0, []) #no conv layers
+
+    if isinstance(num_conv_layers, int):
+        #fixed number of layers
+        conv_layers_space = conv_layers_combinations[num_conv_layers]
+    else:
+        conv_layers_space = hp.choice('num_conv_layers', conv_layers_combinations)
+ 
+
+    #Unfortunately scope.switch is not supported by the converter!
+#    conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
+#                                     [],#no conv layers
+#                                     *conv_layers_combinations)
+
+
     params.append(conv_layers_space)
 
     #Fully connected layers
     fc_layer_subspaces = []
 
-    for layer_id in range(convnet_space.max_fc_layers):
+    for layer_id in range(1, convnet_space.max_fc_layers+1):
         fc_layer_params = convnet_space.get_fc_layer_subspace(layer_id)
-        label = "fc-layer-%d" % (layer_id+1)
+        label = "fc-layer-%d" % (layer_id)
         fc_layer_subspace = subspace_to_tpe(label,
                                                     fc_layer_params)
         fc_layer_subspaces.append(fc_layer_subspace)
@@ -141,11 +175,17 @@ def convnet_space_to_tpe(convnet_space):
     fc_layer_subspaces.reverse()
 
     fc_layers_combinations = get_stacked_layers_subspace(fc_layer_subspaces)
-#    fc_layers_space = hp.choice("fc-layers",
-#                                 fc_layers_combinations)
-    fc_layers_space = scope.switch(scope.int(network_param_subspace["network/num_fc_layers"]),
-                                     None,#no fc layers
-                                     *fc_layers_combinations)
+
+    if isinstance(num_fc_layers, int):
+        #fixed number of layers
+        fc_layers_space = fc_layers_combinations[num_fc_layers]
+    else:
+        fc_layers_space = hp.choice("num_fc_layers",
+                                    fc_layers_combinations)
+#    fc_layers_space = scope.switch(scope.int(network_param_subspace["network/num_fc_layers"]),
+#                                     None,#no fc layers
+#                                     *fc_layers_combinations)
+
     params.append(fc_layers_space)
 
     return params
