@@ -61,16 +61,20 @@ class SMACNumericalParameter(SMACParameter):
         self.type = "numerical"
         self.min_val = min_val
         self.max_val = max_val
-        if default is None:
-            #in between max and min:
-            self.default = 0.5 * min_val + 0.5 * max_val
-        else:
-            self.default = default
+        assert default is not None
+        self.default = default
         self.is_int = is_int
+        if self.is_int:
+            assert type(self.min_val) is int, "excepted int, got " + str(type(self.min_val))
+            assert type(self.max_val) is int, "excepted int, got " + str(type(self.max_val))
+            assert type(self.default) is int, "excepted int, got " + str(type(self.default))
         self.log_scale = log_scale
 
     def __str__(self):
-        base_str = "%s [%f, %f] [%f]" % (self.name, self.min_val, self.max_val, self.default)
+        if self.is_int:
+            base_str = "%s [%d, %d] [%d]" % (self.name, self.min_val, self.max_val, self.default)
+        else:
+            base_str = "%s [%f, %f] [%f]" % (self.name, self.min_val, self.max_val, self.default)
         if self.is_int:
             base_str += "i"
         if self.log_scale:
@@ -111,6 +115,7 @@ def subspace_to_smac(label, params, subspace, dependencies=[], escape_char_depth
         parameter = SMACNumericalParameter(label,
                                            parameter.min_val,
                                            parameter.max_val,
+                                           default=parameter.default_val,
                                            is_int=parameter.is_int,
                                            log_scale=parameter.log_scale)
 
@@ -214,3 +219,7 @@ def smac_space_to_str(smac_space):
         for dependency in param.depends_on:
             lines.append(param.name + str(dependency))
     return "\n".join(lines)
+
+if __name__ == "__main__":
+    #TODO: make this a converter script
+    pass

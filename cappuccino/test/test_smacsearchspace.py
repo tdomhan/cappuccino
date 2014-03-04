@@ -16,11 +16,13 @@ class TestSubspaceToSmac(unittest.TestCase):
         """Let's build up a small search space and try to convert it to SMAC.
         """
         search_space = {"param1": Parameter(0, 10),
-                        "param2": Parameter(10, 100, log_scale=True)}
+                        "param2": Parameter(10, 100, log_scale=True),
+                        "param3": Parameter(0, 100, default_val=20, is_int=True),
+                        }
         smac_space = []
         subspace_to_smac("testspace", smac_space, search_space)
 
-        self.assertEqual(len(smac_space), 2)
+        self.assertEqual(len(smac_space), 3)
 
         for parameter in smac_space:
             self.assertTrue(isinstance(parameter, SMACParameter), "expected SMACParameter.")
@@ -32,6 +34,10 @@ class TestSubspaceToSmac(unittest.TestCase):
                 self.assertEqual(parameter.min_val, 10)
                 self.assertEqual(parameter.max_val, 100)
                 self.assertEqual(parameter.log_scale, True)
+            elif parameter.name == "testspace/param3":
+                self.assertEqual(parameter.min_val, 0)
+                self.assertEqual(parameter.max_val, 100)
+                self.assertEqual(parameter.default, 20)
             else:
                 self.assertTrue(False, "unkown parameter name")
 
@@ -109,16 +115,23 @@ class TestSMACParamToString(unittest.TestCase):
 
     def test_numerical_param_to_string(self):
         param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=False, log_scale=False)
-        param_str = "test [0, 1] [0.5]"
         match = re.match(r"([\w\/]+) \[([0-9\.]+), ([0-9\.]+)\] \[([0-9\.]+)\]", str(param))
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), "test")
         self.assertAlmostEqual(float(match.group(2)), 0)
         self.assertAlmostEqual(float(match.group(3)), 1)
         self.assertAlmostEqual(float(match.group(4)), 0.5)
+
+        #make sure to not get floating point numbers if it's an int
+        param = SMACNumericalParameter("test123", 0, 10, default=5, is_int=True, log_scale=False)
+        match = re.match(r"([\w\/]+) \[([0-9]+), ([0-9]+)\] \[([0-9]+)\]", str(param))
+        self.assertIsNotNone(match, "int number probably contains floating points.")
+        self.assertEqual(match.group(1), "test123")
+        self.assertAlmostEqual(int(match.group(2)), 0)
+        self.assertAlmostEqual(int(match.group(3)), 10)
+        self.assertAlmostEqual(int(match.group(4)), 5)
         
         param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=False, log_scale=True)
-        param_str = "test [0, 1] [0.5]"
         match = re.match(r"([\w\/]+) \[([0-9\.]+), ([0-9\.]+)\] \[([0-9\.]+)\]l", str(param))
         self.assertIsNotNone(match, "doesn't match")
         self.assertEqual(match.group(1), "test")
@@ -126,14 +139,13 @@ class TestSMACParamToString(unittest.TestCase):
         self.assertAlmostEqual(float(match.group(3)), 1)
         self.assertAlmostEqual(float(match.group(4)), 0.5)
 
-        param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=True, log_scale=True)
-        param_str = "test [0, 1] [0.5]"
+        param = SMACNumericalParameter("test", 0, 1, default=0, is_int=True, log_scale=True)
         match = re.match(r"([\w\/]+) \[([0-9\.]+), ([0-9\.]+)\] \[([0-9\.]+)\]il", str(param))
         self.assertIsNotNone(match, "doesn't match")
         self.assertEqual(match.group(1), "test")
-        self.assertAlmostEqual(float(match.group(2)), 0)
-        self.assertAlmostEqual(float(match.group(3)), 1)
-        self.assertAlmostEqual(float(match.group(4)), 0.5)
+        self.assertAlmostEqual(int(match.group(2)), 0)
+        self.assertAlmostEqual(int(match.group(3)), 1)
+        self.assertAlmostEqual(int(match.group(4)), 0)
 
     def test_categorical_param_to_string(self):
         param = SMACCategorialParameter("test", values=[1,2,3], default=3)
@@ -189,6 +201,8 @@ class TestConvNetSpaceConversion(unittest.TestCase):
         self.assertTrue("network/momentum" in params)
         self.assertTrue("network/num_conv_layers" in params)
         self.assertTrue("network/num_fc_layers" in params)
+
+        self.assertTrue("preprocessing/augment" in params)
 
         #check the dependencies of the layer parameters are correct
         self.check_layer_dependencies(
