@@ -104,6 +104,16 @@ class TestSubspaceToSmac(unittest.TestCase):
                   "param1": Parameter(0, 10)}
         space = {"conv_layer_space": [layer1, layer2]}
  
+class TestSmacNumericalParameter(unittest.TestCase):
+
+    def test_int(self):
+        param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=False, log_scale=False)
+        #passing float to an int parameter:
+        self.assertRaises(AssertionError,
+                          SMACNumericalParameter,
+                          "test", float(0), float(1), default=0.5,
+                          is_int=True, log_scale=False)
+
 class TestSMACParamToString(unittest.TestCase):
 
     def test_numerical_param_to_string(self):

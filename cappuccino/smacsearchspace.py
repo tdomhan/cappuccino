@@ -70,12 +70,12 @@ class SMACNumericalParameter(SMACParameter):
         self.default = default
         self.is_int = is_int
         if self.is_int:
-            assert (type(self.min_val) is int,
-                    "excepted int, got " + str(type(self.min_val)))
-            assert (type(self.max_val) is int,
-                    "excepted int, got " + str(type(self.max_val)))
-            assert (type(self.default) is int,
-                    "excepted int, got " + str(type(self.default)))
+            assert type(self.min_val) is int,\
+                   "excepted int, got " + str(type(self.min_val))
+            assert type(self.max_val) is int,\
+                   "excepted int, got " + str(type(self.max_val))
+            assert type(self.default) is int,\
+                   "excepted int, got " + str(type(self.default))
         self.log_scale = log_scale
 
     def __str__(self):
@@ -257,6 +257,13 @@ def smac_sample_to_caffenet(params):
     param_tree = construct_parameter_tree_from_labels(params)
     caffe_convnet_params = group_layers(param_tree)
     return caffe_convnet_params
+
+def smac_space_default_configuration(smac_space):
+    """Extract the default configuration of the given parameter space."""
+    default_configuration = {}
+    for param in smac_space:
+        default_configuration[param.name] = param.default
+    return default_configuration
 
 
 if __name__ == "__main__":
