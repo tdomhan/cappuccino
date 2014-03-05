@@ -1,12 +1,11 @@
+from math import log, exp
 
-
-#TODO: make batch size a parameter!
+#TODO: set sensible default values
 #TODO: other parameters to add?
 #TODO: more preprocessing + preprocessing parameters
 
 
 class Parameter:
-    #TODO: add default parameter value
     def __init__(self, min_val, max_val,
                  default_val = None,
                  is_int = False,
@@ -15,13 +14,16 @@ class Parameter:
         self.min_val = min_val
         self.max_val = max_val
         if default_val is None:
-            self.default_val = 0.5 * min_val + 0.5 * max_val
+            if log_scale:
+                self.default_val = exp(0.5 * log(min_val) + 0.5 * log(max_val))
+            else:
+                self.default_val = 0.5 * min_val + 0.5 * max_val
         else:
             self.default_val = default_val
         self.is_int = is_int
         if self.is_int:
-            self.min_val = int(self.min_val)
-            self.max_val = int(self.max_val)
+            assert type(self.min_val) is int
+            assert type(self.min_val) is int
             self.default_val = int(self.default_val)
         self.log_scale = log_scale
 
@@ -62,12 +64,18 @@ class ConvNetSearchSpace(object):
             max_fc_layers: maximum number of fully connected layers
             num_classes: the number of output classes
         """
+        assert all([dim > 0 for dim in input_dimension]), "input dimension not >= 0"
         assert max_conv_layers >= 0
         self.max_conv_layers = max_conv_layers
         assert max_fc_layers >= 1
         self.max_fc_layers = max_fc_layers
         self.num_classes = num_classes
         self.input_dimension = input_dimension
+
+        if (self.input_dimension[0] > 1 and
+            self.input_dimension[1] == 1 and
+            self.input_dimension[2] == 1):
+            assert self.max_conv_layers == 0, "conv layers can only used when width/height are > 1"
 
     def get_preprocessing_parameter_subspace(self):
         params  = {}
@@ -82,7 +90,7 @@ class ConvNetSearchSpace(object):
                                  augment_params]
         else:
             print "note: not a square image, will not use data augmentation."
-            params["augment"] = {"type": "none"}
+            params["augment"] = [{"type": "none"}]
 
         return params
 
