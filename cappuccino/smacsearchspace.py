@@ -153,7 +153,7 @@ def subspace_to_smac(label, params, subspace,
 def convnet_space_to_smac(convnet_space):
     """Convert the given ConvNetSearchSpace into SMAC format.
     """
-    #assert(isinstance(convnet_space, ConvNetSearchSpace))
+    assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
 
     preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()

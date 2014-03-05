@@ -1,11 +1,8 @@
 import unittest
-from cappuccino.tpesearchspace import subspace_to_tpe
 from cappuccino.tpesearchspace import convnet_space_to_tpe
 from cappuccino.tpesearchspace import tpe_sample_to_caffenet
 from cappuccino.convnetsearchspace import ConvNetSearchSpace
-from cappuccino.convnetsearchspace import Parameter
 from cappuccino.caffeconvnet import CaffeConvNet
-from math import log
 import hyperopt.pyll.stochastic
 
 NUM_RANDOM_SAMPLES = 1000
@@ -28,7 +25,7 @@ class TestTPECaffnetIntegration(unittest.TestCase):
             tpe_sample = hyperopt.pyll.stochastic.sample(tpe_space)
             caffenet_params = tpe_sample_to_caffenet(tpe_sample)
             try:
-                caffe = CaffeConvNet(caffenet_params,
+                CaffeConvNet(caffenet_params,
                              train_file="",
                              valid_file="",
                              mean_file="",
@@ -37,7 +34,6 @@ class TestTPECaffnetIntegration(unittest.TestCase):
                              batch_size_train=100,
                              batch_size_valid=100)
             except:
-                #something blew up
                 self.fail(("Failed initializing CaffeConvNet"
                             "with parameters: %s" % str(caffenet_params)))
  

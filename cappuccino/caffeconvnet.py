@@ -1,5 +1,5 @@
 from caffe.proto import caffe_pb2
-from subprocess import check_output, call, STDOUT, CalledProcessError
+from subprocess import check_output, STDOUT, CalledProcessError
 import traceback
 import copy
 

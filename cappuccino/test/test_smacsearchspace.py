@@ -7,7 +7,6 @@ from cappuccino.smacsearchspace import smac_space_to_str
 from cappuccino.smacsearchspace import SMACParameter
 from cappuccino.smacsearchspace import SMACCategorialParameter
 from cappuccino.smacsearchspace import SMACNumericalParameter
-from cappuccino.smacsearchspace import SMACDependency
 
 
 class TestSubspaceToSmac(unittest.TestCase):
@@ -79,35 +78,20 @@ class TestSubspaceToSmac(unittest.TestCase):
 
         self.assertTrue(isinstance(params["testspace/condspace/type"], SMACCategorialParameter))
         #there are two conditional subspaces:
-        #self.assertEqual(params["testspace/condspace"].values, [0, 1, 2])
         self.assertEqual(params["testspace/condspace/type"].values, ["space1", "space2", "space3"])
 
         #check for dependencies:
         self.assertEqual(len(params["testspace/condspace@space1/param1"].depends_on), 1)
         param_dependency = params["testspace/condspace@space1/param1"].depends_on[0]
         self.assertEqual(param_dependency.parent_name, "testspace/condspace/type")
-        """
-            SMAC dependencies need to be integers.
-            By convention we convert in alphabetical order.
-            Hence:
-        """
-        mapping = {"space1": 0, "space2": 1}
-        #TODO: use integer to string mapping
+
         self.assertEqual(len(param_dependency.values), 1)
-        #self.assertEqual(param_dependency.values[0], mapping["space1"])
         self.assertEqual(param_dependency.values[0], "space1")
 
-    def test_subspace_conversion_conv_layers(self):
-        layer1 = {"type": "space1",
-                  "param1": Parameter(0, 10)}
-        layer2 = {"type": "space2",
-                  "param1": Parameter(0, 10)}
-        space = {"conv_layer_space": [layer1, layer2]}
  
 class TestSmacNumericalParameter(unittest.TestCase):
 
     def test_int(self):
-        param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=False, log_scale=False)
         #passing float to an int parameter:
         self.assertRaises(AssertionError,
                           SMACNumericalParameter,

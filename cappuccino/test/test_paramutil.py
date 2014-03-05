@@ -2,6 +2,8 @@ import unittest
 from cappuccino.paramutil import construct_parameter_tree_from_labels
 from cappuccino.paramutil import group_layers
 from cappuccino.paramutil import flatten_to_leaves
+from cappuccino.paramutil import purge_inactive_parameters
+from cappuccino.paramutil import remove_inactive_layers
 
 
 class TestParameterTreeConstruction(unittest.TestCase):
@@ -16,7 +18,7 @@ class TestParameterTreeConstruction(unittest.TestCase):
 
         self.assertDictEqual(expected_tree, param_tree)
 
-    def test_construct_tree_simple(self):
+    def test_construct_tree_simple2(self):
         params =  {'fc-layer-3/weight-filler@gaussian/std': '0.002240578878878171',
                    'fc-layer-3/weight-filler@gaussian/type': 'gaussian'}
         expected_tree = {"fc-layer-3": {"weight-filler": {"type": "gaussian", "std": 0.002240578878878171}}}
@@ -101,8 +103,83 @@ class TestFlattenParams(unittest.TestCase):
         self.assertEqual(flatten_to_leaves(params),
                          expected_params)
 
+class TestPurgeInactiveParameters(unittest.TestCase):
+    def test_input_not_modified(self):
+        params = {"policy/type": "fixed",
+                  "policy@fixed/lr": 1,
+                  "policy@decay/decay_factor": 0.5}
+        params_original = {"policy/type": "fixed",
+                           "policy@fixed/lr": 1,
+                           "policy@decay/decay_factor": 0.5}
+        #run the purging and see if the input has not been modified
+        purge_inactive_parameters(params)
+        self.assertDictEqual(params,
+                             params_original)
 
 
+    def test_purge_inactive_parameters(self):
+        params = {"policy/type": "fixed",
+                  "policy@fixed/lr": 1,
+                  "policy@decay/decay_factor": 0.5,
+                  "test@trytoconfuse": 5,
+                  "test@trytoconfuse/withthis": 5,
+                  "another/parameter/type": "anothertype",
+                  "another/parameter@anothertype/test": "test",
+                  "another/parameter@unusedtype": "me",
+                  "another/parameter@anotherunusedtype": "me",
+                  'fc-layer-3/weight-filler/type': 'gaussian',
+                  'fc-layer-3/weight-filler@gaussian/std': 0.001,
+                  'fc-layer-3/weight-filler@xavier/std': 0.001,
+                  }
+        params_purged = {"policy/type": "fixed",
+                         "policy@fixed/lr": 1,
+                         "test@trytoconfuse": 5,
+                         "test@trytoconfuse/withthis": 5,
+                         "another/parameter/type": "anothertype",
+                         "another/parameter@anothertype/test": "test",
+                         'fc-layer-3/weight-filler/type': 'gaussian',
+                         'fc-layer-3/weight-filler@gaussian/std': 0.001,
+                         }
+
+        self.assertDictEqual(purge_inactive_parameters(params),
+                             params_purged)
+
+
+class TestRemoveInactiveLayers(unittest.TestCase):
+    def test_remove_inactive_layers(self):
+        network_params = {"num_conv_layers": 2,
+                          "num_fc_layers": 2}
+
+        conv_layer_params = ["conv-layer-1",
+                             "conv-layer-2",
+                             "conv-layer-3",
+                             "conv-layer-4"]
+
+        conv_layer_active_params = ["conv-layer-1",
+                                    "conv-layer-2"]
+ 
+        fc_layer_params = ["fc-layer-1",
+                           "fc-layer-2",
+                           "fc-layer-3",
+                           "fc-layer-4"]
+
+        fc_layer_active_params = ["fc-layer-1",
+                                  "fc-layer-2"]
+ 
+        params = [{"preproc": "test"},
+                  conv_layer_params,
+                  fc_layer_params,
+                  network_params]
+                  
+        test_active_params = remove_inactive_layers(params) 
+        #make sure the input hasn't changed:
+        self.assertEqual(len(conv_layer_params), 4)
+        self.assertEqual(len(fc_layer_params), 4)
+
+        self.assertItemsEqual(test_active_params[0], {"preproc": "test"})
+        self.assertItemsEqual(test_active_params[1], conv_layer_active_params)
+        self.assertItemsEqual(test_active_params[2], fc_layer_active_params)
+        self.assertEqual(len(test_active_params), 4)
 
 if __name__ == '__main__':
     unittest.main()

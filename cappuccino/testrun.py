@@ -1,12 +1,9 @@
 import pprint
 
-import random
-
 #hyperopt:
-import hyperopt.pyll.stochastic
-from hyperopt import fmin, tpe, hp, STATUS_OK
+#import hyperopt.pyll.stochastic
+from hyperopt import fmin, tpe
 
-import cappuccino
 from cappuccino.convnetsearchspace import ConvNetSearchSpace
 from cappuccino.tpesearchspace import convnet_space_to_tpe
 from cappuccino.tpesearchspace import tpe_sample_to_caffenet
@@ -25,7 +22,6 @@ def test_fun(kwargs):
                          num_valid=10000,
                          batch_size_train=100,
                          batch_size_valid=100)
-    return 0
     return caffe.run()
 
 def test():
@@ -38,6 +34,7 @@ def test():
 #        print hyperopt.pyll.stochastic.sample(tpe_space)
 
     best = fmin(test_fun, space=tpe_space, algo=tpe.suggest, max_evals=10)
+    print best
 
 
 if __name__ == "__main__":
