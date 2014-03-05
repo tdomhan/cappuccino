@@ -60,7 +60,6 @@ class CaffeConvNet(object):
         self._convert_params_to_caffe_network(copy.deepcopy(params))
         self._create_train_valid_networks()
 
-        self._serialize()
 
     def _convert_params_to_caffe_network(self, params):
         """
@@ -426,6 +425,7 @@ class CaffeConvNet(object):
         """
             Run the given network and return the best validation performance.
         """
+        self._serialize()
         return run_caffe(self._solver_file, hide_output=hide_output)
 
 

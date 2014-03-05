@@ -21,9 +21,11 @@ def test_fun(kwargs):
                          train_file="/home/domhant/data/cifar10/caffe/cifar-train-leveldb-2",
                          valid_file="/home/domhant/data/cifar10/caffe/cifar-test-leveldb-2",
                          mean_file="/home/domhant/data/cifar10/caffe/cifar-train-mean.binaryproto",
-                         num_validation_set_batches=100,
-                         batch_size_train=128,
+                         num_train=50000,
+                         num_valid=10000,
+                         batch_size_train=100,
                          batch_size_valid=100)
+    return 0
     return caffe.run()
 
 def test():

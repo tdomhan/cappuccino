@@ -105,7 +105,7 @@ def convnet_space_to_tpe(convnet_space):
 
         returns: search space in the TPE format.
     """
-#    assert(isinstance(convnet_space, ConvNetSearchSpace))
+    assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
 
     preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()
@@ -119,8 +119,8 @@ def convnet_space_to_tpe(convnet_space):
 
     #in hyperopt we will represent the number of conv layers as a choice object
     #that's why we can strip them here:
-    num_conv_layers = network_params.pop("num_conv_layers")
-    num_fc_layers = network_params.pop("num_fc_layers")
+    #num_conv_layers = network_params.pop("num_conv_layers")
+    #num_fc_layers = network_params.pop("num_fc_layers")
 
     network_param_subspace = subspace_to_tpe("network", network_params)
     params.append(network_param_subspace)
@@ -141,19 +141,17 @@ def convnet_space_to_tpe(convnet_space):
 
     conv_layers_combinations = get_stacked_layers_subspace(conv_layer_subspaces)
 
-    conv_layers_combinations.insert(0, []) #no conv layers
-
-    if isinstance(num_conv_layers, int):
-        #fixed number of layers
-        conv_layers_space = conv_layers_combinations[num_conv_layers]
-    else:
-        conv_layers_space = hp.choice('num_conv_layers', conv_layers_combinations)
- 
+#    conv_layers_combinations.insert(0, []) #no conv layers
+#    if isinstance(num_conv_layers, int):
+#        #fixed number of layers
+#        conv_layers_space = conv_layers_combinations[num_conv_layers]
+#    else:
+#        conv_layers_space = hp.choice('num_conv_layers', conv_layers_combinations)
 
     #Unfortunately scope.switch is not supported by the converter!
-#    conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
-#                                     [],#no conv layers
-#                                     *conv_layers_combinations)
+    conv_layers_space = scope.switch(scope.int(network_param_subspace["network/num_conv_layers"]),
+                                     [],#no conv layers
+                                     *conv_layers_combinations)
 
 
     params.append(conv_layers_space)
@@ -176,15 +174,16 @@ def convnet_space_to_tpe(convnet_space):
 
     fc_layers_combinations = get_stacked_layers_subspace(fc_layer_subspaces)
 
-    if isinstance(num_fc_layers, int):
-        #fixed number of layers
-        fc_layers_space = fc_layers_combinations[num_fc_layers]
-    else:
-        fc_layers_space = hp.choice("num_fc_layers",
-                                    fc_layers_combinations)
-#    fc_layers_space = scope.switch(scope.int(network_param_subspace["network/num_fc_layers"]),
-#                                     None,#no fc layers
-#                                     *fc_layers_combinations)
+#    if isinstance(num_fc_layers, int):
+#        #fixed number of layers
+#        fc_layers_space = fc_layers_combinations[num_fc_layers]
+#    else:
+#        fc_layers_space = hp.choice("num_fc_layers",
+#                                    fc_layers_combinations)
+
+    fc_layers_space = scope.switch(scope.int(network_param_subspace["network/num_fc_layers"]),
+                                     None,#no fc layers
+                                     *fc_layers_combinations)
 
     params.append(fc_layers_space)
 
