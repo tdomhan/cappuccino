@@ -36,6 +36,8 @@ class TestTPECaffnetIntegration(unittest.TestCase):
             except:
                 self.fail(("Failed initializing CaffeConvNet"
                             "with parameters: %s" % str(caffenet_params)))
+        #overwrite the carriage return
+        print ""
  
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import re
 from cappuccino.convnetsearchspace import ConvNetSearchSpace, Parameter
 from cappuccino.convnetsearchspace import Pylearn2Convnet
 from cappuccino.smacsearchspace import subspace_to_smac, convnet_space_to_smac
+from cappuccino.smacsearchspace import smac_sample_to_caffenet
 from cappuccino.smacsearchspace import smac_space_to_str
 from cappuccino.smacsearchspace import SMACParameter
 from cappuccino.smacsearchspace import SMACCategorialParameter
@@ -314,6 +315,27 @@ class TestConvNetSpaceConversion(unittest.TestCase):
         TODO: maybe we should put this in the test for the convnetsearchspace though.
         """
         pass
+
+
+class TestSMACSampleToCaffenet(unittest.TestCase):
+    def test_simple_hpolib_style(self):
+        params = {"format": "smac",
+                  "preprocessing/test": "preproc",
+                  "network/test": "network",
+                  "conv-layer-1": "conv-1",
+                  "conv-layer-2": "conv-2",
+                  "conv-layer-3": "conv-3",
+                  "fc-layer-1": "fc-1",
+                  "fc-layer-2": "fc-2",
+                  "fc-layer-3": "fc-3",
+                  }
+        expected_params = ({"test": "preproc"},
+                           ["conv-1", "conv-2", "conv-3"],
+                           ["fc-1", "fc-2", "fc-3"],
+                           {"test": "network"})
+        caffenet_params = smac_sample_to_caffenet(params)
+        self.assertEqual(caffenet_params, expected_params)
+
 
 if __name__ == '__main__':
     unittest.main()

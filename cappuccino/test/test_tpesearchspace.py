@@ -1,6 +1,7 @@
 import unittest
 from cappuccino.tpesearchspace import subspace_to_tpe
 from cappuccino.tpesearchspace import convnet_space_to_tpe
+from cappuccino.tpesearchspace import tpe_sample_to_caffenet
 from cappuccino.convnetsearchspace import Parameter
 from cappuccino.convnetsearchspace import ConvNetSearchSpace
 from math import log
@@ -94,13 +95,16 @@ class TestTPESearchSpace(unittest.TestCase):
                                    max_conv_layers=2,
                                    max_fc_layers=3)
         tpe_space = convnet_space_to_tpe(space)
-        #preprocssing, network, conv-layers, fc-layers
-        self.assertEqual(len(tpe_space), 4)
+        #preprocssing, network, conv-layers, fc-layers, format
+        self.assertEqual(len(tpe_space), 5)
 
         first_level_params = []
         for item in tpe_space:
             if isinstance(item, dict):
                 first_level_params.extend(item.keys())
+
+        self.assertTrue("format" in first_level_params)
+        self.assertEqual(tpe_space[0]["format"], "tpe")
 
         self.assertTrue("network/lr" in first_level_params)
         self.assertTrue("network/lr_policy" in first_level_params)
@@ -109,6 +113,60 @@ class TestTPESearchSpace(unittest.TestCase):
         self.assertTrue("preprocessing/augment" in first_level_params)
 
         #TODO: check for conv and fc layers
+
+class TestTPESampleToCaffenet(unittest.TestCase):
+
+    def test_check_format(self):
+        """should not work if the tpe format flag is missing."""
+        params = [{"format": "smac"},
+                  {"preprocessing/test": "preproc"},
+                  {"network/test": "network"},
+                  ({"conv-layer-1": "conv-1"},
+                   {"conv-layer-2": "conv-2"},
+                   {"conv-layer-3": "conv-3"}),
+                  ({"fc-layer-1": "fc-1"},
+                   {"fc-layer-2": "fc-2"},
+                   {"fc-layer-3": "fc-3"}),
+                  ]
+        self.assertRaises(AssertionError,
+                          tpe_sample_to_caffenet,
+                          params)
+ 
+    def test_simple_hyperopt_style(self):
+        params = [{"format": "tpe"},
+                  {"preprocessing/test": "preproc"},
+                  {"network/test": "network"},
+                  ({"conv-layer-1": "conv-1"},
+                   {"conv-layer-2": "conv-2"},
+                   {"conv-layer-3": "conv-3"}),
+                  ({"fc-layer-1": "fc-1"},
+                   {"fc-layer-2": "fc-2"},
+                   {"fc-layer-3": "fc-3"}),
+                  ]
+        expected_params = ({"test": "preproc"},
+                           ["conv-1", "conv-2", "conv-3"],
+                           ["fc-1", "fc-2", "fc-3"],
+                           {"test": "network"})
+        caffenet_params = tpe_sample_to_caffenet(params)
+        self.assertEqual(caffenet_params, expected_params)
+
+    def test_simple_hpolib_style(self):
+        params = {"format": "tpe",
+                  "preprocessing/test": "preproc",
+                  "network/test": "network",
+                  "conv-layer-1": "conv-1",
+                  "conv-layer-2": "conv-2",
+                  "conv-layer-3": "conv-3",
+                  "fc-layer-1": "fc-1",
+                  "fc-layer-2": "fc-2",
+                  "fc-layer-3": "fc-3",
+                  }
+        expected_params = ({"test": "preproc"},
+                           ["conv-1", "conv-2", "conv-3"],
+                           ["fc-1", "fc-2", "fc-3"],
+                           {"test": "network"})
+        caffenet_params = tpe_sample_to_caffenet(params)
+        self.assertEqual(caffenet_params, expected_params)
 
 
 if __name__ == '__main__':

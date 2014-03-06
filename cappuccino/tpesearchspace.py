@@ -97,6 +97,12 @@ def get_stacked_layers_subspace(layer_subspaces):
 
     return layer_combinations
 
+def add_to_dict(dest_dict, source_dict):
+    assert isinstance(dest_dict, dict)
+    assert isinstance(source_dict, dict)
+    for item_name, item in source_dict.iteritems():
+        assert item_name not in dest_dict
+        dest_dict[item_name] = item
 
 def convnet_space_to_tpe(convnet_space):
     """
@@ -107,11 +113,13 @@ def convnet_space_to_tpe(convnet_space):
     """
     assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
+    #params = {}
 
-    #params.append({"format": "tpe"})
+    params.append({"format": "tpe"})
 
     preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()
     params.append(subspace_to_tpe("preprocessing", preprocessing_params))
+    #add_to_dict(params, subspace_to_tpe("preprocessing", preprocessing_params))
 
     network_params = convnet_space.get_network_parameter_subspace()
     if isinstance(network_params["num_conv_layers"], Parameter):
@@ -126,6 +134,7 @@ def convnet_space_to_tpe(convnet_space):
 
     network_param_subspace = subspace_to_tpe("network", network_params)
     params.append(network_param_subspace)
+    #add_to_dict(params, network_param_subspace)
 
     #Convolutional layers:
     conv_layer_subspaces = []
@@ -157,6 +166,7 @@ def convnet_space_to_tpe(convnet_space):
 
 
     params.append(conv_layers_space)
+    #add_to_dict(params, {"conv-layers": conv_layers_space})
 
     #Fully connected layers
     fc_layer_subspaces = []
@@ -188,6 +198,7 @@ def convnet_space_to_tpe(convnet_space):
                                      *fc_layers_combinations)
 
     params.append(fc_layers_space)
+    #add_to_dict(params, {"fc-layers": fc_layers_space})
 
     return params
 
@@ -205,6 +216,7 @@ def tpe_sample_to_caffenet(params):
     # flat parameters. Therefore the labels contain the full
     # tree path.
     flattened_params = flatten_to_leaves(params)
+    assert flattened_params["format"] == "tpe"
     param_tree = construct_parameter_tree_from_labels(flattened_params)
     caffe_convnet_params = group_layers(param_tree)
     return caffe_convnet_params

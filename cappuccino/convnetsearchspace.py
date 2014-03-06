@@ -19,6 +19,8 @@ class Parameter:
             else:
                 self.default_val = 0.5 * min_val + 0.5 * max_val
         else:
+            assert(default_val <= max_val)
+            assert(min_val <= default_val)
             self.default_val = default_val
         self.is_int = is_int
         if self.is_int:
@@ -111,9 +113,11 @@ class ConvNetSearchSpace(object):
                                                 self.max_fc_layers,
                                                 default_val=self.max_fc_layers,
                                                 is_int=True)
-        params["lr"] = Parameter(1e-6, 0.7, is_int=False, log_scale=True)
-        params["momentum"] = Parameter(0, 0.99, is_int=False)
-        params["weight_decay"] = Parameter(0.000005, 0.05, is_int=False, log_scale=True)
+        params["lr"] = Parameter(1e-6, 0.7, default_val=0.01,
+                                 is_int=False, log_scale=True)
+        params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
+        params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
+                                           is_int=False, log_scale=True)
         fixed_policy = {"type": "fixed"}
         exp_policy = {"type": "exp",
                       "gamma": Parameter(0.8, 0.99999, is_int=False)}
@@ -148,21 +152,38 @@ class ConvNetSearchSpace(object):
         #params["stride"] = Parameter(1, 5, is_int=True)
         params["stride"] =  1
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.00001, .1, log_scale=True, is_int=False)},
+                                    "std": Parameter(0.00001,.1,
+                                                     default_val=0.01,
+                                                     log_scale=True,
+                                                     is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.00001, .1, log_scale=True, is_int=False)}]
+                                    "std": Parameter(0.00001,.1,
+                                                     default_val=0.01,
+                                                     log_scale=True,
+                                                     is_int=False)}]
         params["bias-filler"] = [{"type": "const-zero"},
                                  {"type": "const-one"}]
-        params["weight-lr-multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
-        params["bias-lr-multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
-        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
-        params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
+        params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
+                                                   is_int=False,
+                                                   log_scale=True)
+        params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
+                                                 is_int=False, log_scale=True)
+        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10,
+                                                             default_val=1,
+                                                             is_int=False,
+                                                             log_scale=True)
+        params["bias-weight-decay_multiplier"] = Parameter(0.001, 10,
+                                                           default_val=0.001,
+                                                           is_int=False,
+                                                           log_scale=True)
 
         #TODO: check lrn parameter ranges
         normalization_params = {"type": "lrn",
                                 "local_size": Parameter(2, 6, is_int=True),
-                                "alpha": Parameter(0.00001, 0.001, log_scale=True),
-                                "beta": Parameter(0.6, 0.9)}
+                                "alpha": Parameter(0.00001, 0.001,
+                                                   default_val=0.0001,
+                                                   log_scale=True),
+                                "beta": Parameter(0.6, 0.9, default_val=0.75)}
         params["norm"] = [normalization_params,
                           {"type": "none"}]
 
@@ -181,7 +202,8 @@ class ConvNetSearchSpace(object):
                              ave_pooling]
 
         params["dropout"] = [{"type": "dropout",
-                              "dropout_ratio": Parameter(0.05, 0.95, is_int=False)},
+                              "dropout_ratio": Parameter(0.05, 0.95,
+                                                         is_int=False)},
                              {"type": "no_dropout"}]
  
         return params
@@ -196,13 +218,22 @@ class ConvNetSearchSpace(object):
         params = {}
         params["type"] = "fc"
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.00001, 0.1, log_scale=True, is_int=False)},
+                                    "std": Parameter(0.00001, 0.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.00001, 0.1, log_scale=True, is_int=False)}]
+                                    "std": Parameter(0.00001, 0.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)}]
         params["bias-filler"] = [{"type": "const-zero"},
                                  {"type": "const-one"}]
-        params["weight-lr-multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
-        params["bias-lr-multiplier"] = Parameter(0.01, 10, is_int=False, log_scale=True)
+        params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
+                                                   is_int=False,
+                                                   log_scale=True)
+        params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
+                                                 is_int=False, log_scale=True)
 #        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
 #        params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
 
@@ -212,7 +243,9 @@ class ConvNetSearchSpace(object):
             params["num_output_x_128"] = Parameter(1, 10, is_int=True)
             params["activation"] = "relu"
             params["dropout"] = [{"type": "dropout",
-                                  "dropout_ratio": Parameter(0.05, 0.95, is_int=False)},
+                                  "dropout_ratio": Parameter(0.05, 0.95,
+                                                             default_val=0.5,
+                                                             is_int=False)},
                                  {"type": "no_dropout"}]
                                   
         else:
