@@ -5,7 +5,7 @@ from cappuccino.convnetsearchspace import ConvNetSearchSpace
 from cappuccino.caffeconvnet import CaffeConvNet
 import hyperopt.pyll.stochastic
 
-NUM_RANDOM_SAMPLES = 1000
+NUM_RANDOM_SAMPLES = 100
 
 class TestTPECaffnetIntegration(unittest.TestCase):
 

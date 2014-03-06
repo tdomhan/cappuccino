@@ -94,7 +94,6 @@ class TestTPESearchSpace(unittest.TestCase):
                                    max_conv_layers=2,
                                    max_fc_layers=3)
         tpe_space = convnet_space_to_tpe(space)
-        print tpe_space
         #preprocssing, network, conv-layers, fc-layers
         self.assertEqual(len(tpe_space), 4)
 

@@ -16,7 +16,9 @@ class TestSubspaceToSmac(unittest.TestCase):
         """
         search_space = {"param1": Parameter(0, 10),
                         "param2": Parameter(10, 100, log_scale=True),
-                        "param3": Parameter(0, 100, default_val=20, is_int=True),
+                        "param3": Parameter(0, 100,
+                                            default_val=20,
+                                            is_int=True),
                         }
         smac_space = []
         subspace_to_smac("testspace", smac_space, search_space)
@@ -58,7 +60,6 @@ class TestSubspaceToSmac(unittest.TestCase):
         subspace_to_smac("testspace", smac_space, space,
                                       escape_char_depth='/',
                                       escape_char_choice='@')
-        #print smac_space_to_str(smac_space)
 
         #we have 4 parameters
         #+ 1 extra parameter that encode the conditionality
@@ -137,7 +138,6 @@ class TestSMACParamToString(unittest.TestCase):
     def test_categorical_param_to_string(self):
         param = SMACCategorialParameter("test", values=[1,2,3], default=3)
         match = re.match(r"([\w\/]+) \{([0-9\.]+), ([0-9\.]+), ([0-9\.]+)\} \[([0-9\.]+)\]", str(param))
-        print str(param)
         self.assertIsNotNone(match, "doesn't match")
         self.assertEqual(match.group(1), "test")
         self.assertAlmostEqual(float(match.group(2)), 1)
@@ -169,11 +169,12 @@ class TestConvNetSpaceConversion(unittest.TestCase):
                                     "activation"]
 
     def test_convnet_space_conversion(self):
-        space = ConvNetSearchSpace((3, 32, 32), max_conv_layers=2, max_fc_layers=3)
+        space = ConvNetSearchSpace((3, 32, 32),
+                                   max_conv_layers=2,
+                                   max_fc_layers=3)
 
         self.space = space
         smac_space = convnet_space_to_smac(space)
-        print smac_space_to_str(smac_space)
         self.smac_space = smac_space
 
         self.assertGreater(len(smac_space), 0)
@@ -190,6 +191,19 @@ class TestConvNetSpaceConversion(unittest.TestCase):
         self.assertTrue("network/num_fc_layers" in params)
 
         self.assertTrue("preprocessing/augment/type" in params)
+
+        # test that we get the number of layers right:
+        network_params_orig = space.get_network_parameter_subspace()
+        num_conv_layers_smac = params["network/num_conv_layers"]
+        num_conv_layers_orig = network_params_orig["num_conv_layers"]
+        self.assertEqual(num_conv_layers_smac.default,
+                         num_conv_layers_orig.default_val)
+ 
+        num_fc_layers_smac = params["network/num_fc_layers"]
+        num_fc_layers_orig = network_params_orig["num_fc_layers"]
+        self.assertEqual(num_fc_layers_smac.default,
+                         num_fc_layers_orig.default_val)
+ 
 
         #check the dependencies of the layer parameters are correct
         self.check_layer_dependencies(
@@ -251,13 +265,16 @@ class TestConvNetSpaceConversion(unittest.TestCase):
         """
         space = Pylearn2Convnet()
         smac_space = convnet_space_to_smac(space)
-        print smac_space_to_str(smac_space)
 
         self.assertGreater(len(smac_space), 0)
         for param in smac_space:
             self.assertTrue(isinstance(param, SMACParameter), "expected SMACParameter.")
 
         params = {parameter.name: parameter for parameter in smac_space}
+
+        #check the format indicator exists:
+        self.assertEqual(params["format"].default, "smac")
+        self.assertEqual(len(params["format"].values), 1)
 
         #check that we have all necessary parameters
         self.assertTrue("network/lr" in params)

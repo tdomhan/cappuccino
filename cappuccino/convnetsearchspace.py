@@ -99,12 +99,18 @@ class ConvNetSearchSpace(object):
         if self.max_conv_layers == 0:
             params["num_conv_layers"] = 0
         else:
-            params["num_conv_layers"] = Parameter(0, self.max_conv_layers, is_int=True)
+            params["num_conv_layers"] = Parameter(0,
+                                                  self.max_conv_layers,
+                                                  default_val=self.max_conv_layers,
+                                                  is_int=True)
         #note we need at least one fc layer
         if self.max_fc_layers == 1:
             params["num_fc_layers"] = 1
         else:
-            params["num_fc_layers"] = Parameter(1, self.max_fc_layers, is_int=True)
+            params["num_fc_layers"] = Parameter(1, # at least one layer that generates our output 
+                                                self.max_fc_layers,
+                                                default_val=self.max_fc_layers,
+                                                is_int=True)
         params["lr"] = Parameter(1e-6, 0.7, is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.05, is_int=False, log_scale=True)

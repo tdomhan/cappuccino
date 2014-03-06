@@ -43,16 +43,20 @@ class SMACParameter(object):
 
 
 class SMACCategorialParameter(SMACParameter):
-    def __init__(self, name, values, default=None):
+    def __init__(self, name, values, default):
         super(SMACCategorialParameter, self).__init__(name)
         self.type = "categorical"
         assert(len(values) > 0)
         self.values = values
-        if default is None:
-            #TODO: what to choose as the default
-            self.default = values[0]
-        else:
-            self.default = default
+        # this is just for format conversion, we won't choose a default here
+        assert default is not None
+        assert default in self.values
+        self.default = default
+#        if default is None:
+#            #TODO: what to choose as the default
+#            self.default = values[0]
+#        else:
+#            self.default = default
 
     def __str__(self):
         values_string = ", ".join(map(str, self.values))
@@ -117,8 +121,10 @@ def subspace_to_smac(label, params, subspace,
         #add another variable to encode the choice:
         types = [item["type"] for item in subspace if "type" in item]
         choice_param_name = label+escape_char_depth+"type"
+        #TODO: get default choice from the ConvNet!
         choice_param = SMACCategorialParameter(name=choice_param_name,
-                                               values=types)
+                                               values=types,
+                                               default=types[0])
         params.append(choice_param)
         for idx, item in enumerate(subspace):
             assert("type" in item)
@@ -144,7 +150,8 @@ def subspace_to_smac(label, params, subspace,
         const = subspace
         #we represent constants as categorical variables with a single category
         parameter = SMACCategorialParameter(label,
-                                            values=[str(const)])
+                                            values=[str(const)],
+                                            default=str(const))
         parameter.depends_on = dependencies
 
         params.append(parameter)
@@ -155,6 +162,14 @@ def convnet_space_to_smac(convnet_space):
     """
     assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
+
+    #add format hint: 
+    #TODO: alteratively add it to each parameter name?
+    format_hint = SMACCategorialParameter(
+        "format",
+         values=["smac"],
+         default="smac")
+    params.append(format_hint)
 
     preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()
     subspace_to_smac("preprocessing", params, preprocessing_params)
@@ -168,30 +183,38 @@ def convnet_space_to_smac(convnet_space):
         values = range(num_conv_layers.min_val, num_conv_layers.max_val+1)
         num_conv_layers_param = SMACCategorialParameter(
             "network/num_conv_layers",
-            values=values)
+            values=values,
+            default=num_conv_layers.default_val)
         conv_layers_fixed = False
     elif isinstance(num_conv_layers, int):
         #const value = categorical with a singe choice
         num_conv_layers_param = SMACCategorialParameter(
             "network/num_conv_layers",
-            values=[num_conv_layers])
+            values=[num_conv_layers],
+            default=num_conv_layers)
         conv_layers_fixed = True
     else:
         assert(False,
                "num_conv_layers either needs to be a Parameter or an int.")
     params.append(num_conv_layers_param)
 
+    #params = {parameter.name: parameter for parameter in smac_space}
+
     num_fc_layers = network_params.pop("num_fc_layers")
     if isinstance(num_fc_layers, Parameter):
         assert num_fc_layers.min_val == 1
         values = range(num_fc_layers.min_val, num_fc_layers.max_val+1)
-        num_fc_layers_param = SMACCategorialParameter("network/num_fc_layers",
-                                                      values=values)
+        num_fc_layers_param = SMACCategorialParameter(
+            "network/num_fc_layers",
+            values=values,
+            default=num_fc_layers.default_val)
         fc_layers_fixed = False
     elif isinstance(num_fc_layers, int):
         #const value = categorical with a singe choice
-        num_fc_layers_param = SMACCategorialParameter("network/num_fc_layers",
-                                                      values=[num_fc_layers])
+        num_fc_layers_param = SMACCategorialParameter(
+            "network/num_fc_layers",
+            values=[num_fc_layers],
+            default=num_fc_layers)
         fc_layers_fixed = True
     else:
         assert False, "num_fc_layers either needs to be a Parameter or an int."

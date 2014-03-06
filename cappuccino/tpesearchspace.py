@@ -108,6 +108,8 @@ def convnet_space_to_tpe(convnet_space):
     assert(isinstance(convnet_space, ConvNetSearchSpace))
     params = []
 
+    #params.append({"format": "tpe"})
+
     preprocessing_params = convnet_space.get_preprocessing_parameter_subspace()
     params.append(subspace_to_tpe("preprocessing", preprocessing_params))
 
