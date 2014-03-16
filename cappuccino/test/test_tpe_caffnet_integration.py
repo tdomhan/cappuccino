@@ -1,4 +1,5 @@
 import unittest
+import traceback
 from cappuccino.tpesearchspace import convnet_space_to_tpe
 from cappuccino.tpesearchspace import tpe_sample_to_caffenet
 from cappuccino.convnetsearchspace import ConvNetSearchSpace
@@ -34,6 +35,7 @@ class TestTPECaffnetIntegration(unittest.TestCase):
                              batch_size_train=100,
                              batch_size_valid=100)
             except:
+                print traceback.format_exc()
                 self.fail(("Failed initializing CaffeConvNet"
                             "with parameters: %s" % str(caffenet_params)))
         #overwrite the carriage return

@@ -140,7 +140,7 @@ class CaffeConvNet(object):
     def _create_data_layer(self, params):
         data_layer = self._caffe_net.layers.add()
         data_layer.layer.name = "data"
-        data_layer.layer.type = "data"
+        data_layer.layer.type = "hdf5_data"
         if hasattr(self, "_scale_factor"):
             data_layer.layer.scale = self._scale_factor
         data_layer.top.append("data")
@@ -163,21 +163,6 @@ class CaffeConvNet(object):
 
         #Convolution
         assert params.pop("type") == "conv"
-
-        padding_params = params.pop("padding")
-        if padding_params["type"] == "zero-padding":
-            caffe_pad_layer = self._caffe_net.layers.add()
-
-            current_layer_name = current_layer_base_name + "pad"
-            caffe_pad_layer.layer.name = current_layer_name
-            caffe_pad_layer.layer.type = "padding"
-            caffe_pad_layer.layer.pad = int(padding_params["size"])
-            caffe_pad_layer.bottom.append(prev_layer_name)
-            #Note: the operation is made in-place by using the same name twice
-            caffe_pad_layer.top.append(current_layer_name)
-
-            prev_layer_name = current_layer_name
-
 
         caffe_conv_layer = self._caffe_net.layers.add()
         current_layer_name = current_layer_base_name + "conv"
@@ -209,6 +194,10 @@ class CaffeConvNet(object):
 
         caffe_conv_layer.layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
         caffe_conv_layer.layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+
+        padding_params = params.pop("padding")
+        if padding_params["type"] == "zero-padding":
+            caffe_conv_layer.layer.pad = int(padding_params["size"])
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)
