@@ -113,7 +113,7 @@ class ConvNetSearchSpace(object):
                                                 self.max_fc_layers,
                                                 default_val=self.max_fc_layers,
                                                 is_int=True)
-        params["lr"] = Parameter(1e-6, 0.7, default_val=0.01,
+        params["lr"] = Parameter(1e-10, 0.7, default_val=0.01,
                                  is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
@@ -124,9 +124,13 @@ class ConvNetSearchSpace(object):
         step_policy = {"type": "step",
                        "gamma": Parameter(0.05, 0.99, is_int=False),
                        "epochcount": Parameter(1, 50, is_int=True)}
+        #TODO: make gamma relative to the epoch count??
         inv_policy = {"type": "inv",
-                      "gamma": Parameter(0.0001, 10000, is_int=False, log_scale=True),
-                      "power": Parameter(0.000001, 1, is_int=False, log_scale = True)}
+                      "gamma": Parameter(0.00000001, 10000,
+                                         is_int=False,
+                                         log_scale=True),
+                      "power": Parameter(0.000001, 1,
+                                         is_int=False, log_scale = True)}
         params["lr_policy"] = [fixed_policy,
                                exp_policy,
                                step_policy,
@@ -469,6 +473,17 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
         return params
 
 
+class NoDataAugmentationConvNetSearchSpace(ConvNetSearchSpace):
+    """Convnet search space, but with data augmentation disabled."""
+    def __init__(self, **kwargs):
+        super(NoDataAugmentationConvNetSearchSpace, self).__init__(**kwargs)
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(NoDataAugmentationConvNetSearchSpace, self).get_preprocessing_parameter_subspace()
+        params["augment"] = {"type": "none"}
+        return params
+
+
 class Pylearn2Convnet(ConvNetSearchSpace):
     """
         A search space, where the architecture is fixed
@@ -517,10 +532,10 @@ class Pylearn2Convnet(ConvNetSearchSpace):
         #first parameters that are common to all layers:
         params["bias-filler"] = {"type": "const-zero"}
 
-#        params["weight-lr-multiplier"] = 0.05
-#        params["bias-lr-multiplier"] = 0.05
-#        params["weight-weight-decay_multiplier"] = 1  
-#        params["bias-weight-decay_multiplier"] = 0
+        params["weight-lr-multiplier"] = 0.05
+        params["bias-lr-multiplier"] = 0.05
+        params["weight-weight-decay_multiplier"] = 1  
+        params["bias-weight-decay_multiplier"] = 0
 
         params["norm"] = {"type": "none"}
 
@@ -574,8 +589,8 @@ class Pylearn2Convnet(ConvNetSearchSpace):
 
         params["bias-filler"] = {"type": "const-zero"}
 
-#        params["weight-lr-multiplier"] = 1
-#        params["bias-lr-multiplier"] = 1
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 1
         #params["weight-weight-decay_multiplier"] = 1  
         #params["bias-weight-decay_multiplier"] = 0
 

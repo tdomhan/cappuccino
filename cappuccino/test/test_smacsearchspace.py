@@ -104,6 +104,7 @@ class TestSMACParamToString(unittest.TestCase):
 
     def test_numerical_param_to_string(self):
         param = SMACNumericalParameter("test", 0, 1, default=0.5, is_int=False, log_scale=False)
+        print str(param)
         match = re.match(r"([\w\/]+) \[([0-9\.]+), ([0-9\.]+)\] \[([0-9\.]+)\]", str(param))
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), "test")

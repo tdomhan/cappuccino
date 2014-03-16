@@ -87,8 +87,10 @@ class SMACNumericalParameter(SMACParameter):
             base_str = "%s [%d, %d] [%d]" % (self.name, self.min_val,
                                              self.max_val, self.default)
         else:
-            base_str = "%s [%f, %f] [%f]" % (self.name, self.min_val,
-                                             self.max_val, self.default)
+            #TODO: detect if precision is lost!
+            #TODO: can we use scientific notation?
+            base_str = "%s [%.10f, %.10f] [%.10f]" % (self.name, self.min_val,
+                                                   self.max_val, self.default)
         if self.is_int:
             base_str += "i"
         if self.log_scale:
