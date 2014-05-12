@@ -29,11 +29,14 @@ class TestTPECaffnetIntegration(unittest.TestCase):
                 CaffeConvNet(caffenet_params,
                              train_file="",
                              valid_file="",
+                             test_file="",
                              mean_file="",
                              num_train=50000,
                              num_valid=10000,
+                             num_test=10000,
                              batch_size_train=100,
-                             batch_size_valid=100)
+                             batch_size_valid=100,
+                             batch_size_test=100)
             except:
                 print traceback.format_exc()
                 self.fail(("Failed initializing CaffeConvNet"

@@ -10,12 +10,15 @@ class CaffeConvNet(object):
     def __init__(self, params,
                  train_file,
                  valid_file,
+                 test_file,
                  num_train,
                  num_valid,
+                 num_test,
                  mean_file=None,
                  scale_factor=None,
                  batch_size_train = 128,
                  batch_size_valid = 100,
+                 batch_size_test = 100,
                  device = "GPU",
                  device_id = 0,
                  snapshot_on_exit = 0):
@@ -23,13 +26,16 @@ class CaffeConvNet(object):
             Parameters of the network as defined by ConvNetSearchSpace.
 
             params: parameters to the network
-            train_file: the training data leveldb file
-            valid_file: the validation data leveldb file
+            train_file: the training data hdf5 file
+            valid_file: the validation data hdf5 file
+            test_file: the test data hdf5 file
             num_train: number of examples in the train set
             num_valid: number of examples in the validation set
-            mean_file: mean per dimesnion leveldb file
+            num_test: number of examples in the test set
+            mean_file: DEPRECATED FOR NOW mean per dimension leveldb file
             scale_factor: a factor used for scaling the input data.
             batch_size_train: the batch size during training
+            batch_size_valid: the batch size during validation
             batch_size_test: the batch size during testing
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
@@ -37,15 +43,19 @@ class CaffeConvNet(object):
         """
         self._train_file = train_file
         self._valid_file = valid_file
+        self._test_file = test_file
         self._mean_file = mean_file
         if scale_factor != None:
             self._scale_factor = scale_factor
         assert num_train % batch_size_train == 0, "num_train must be a multiple of the train bach size"
         assert num_valid % batch_size_valid == 0, "num_valid must be a multiple of the valid bach size"
+        assert num_test % batch_size_test == 0, "num_test must be a multiple of the test bach size"
         self._batch_size_train = batch_size_train
         self._batch_size_valid = batch_size_valid
+        self._batch_size_test = batch_size_valid
         self._num_train = num_train
         self._num_valid = num_valid
+        self._num_test = num_valid
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
@@ -55,6 +65,7 @@ class CaffeConvNet(object):
 
         self._train_network_file = self._base_name + "_train.prototxt"
         self._valid_network_file = self._base_name + "_valid.prototxt"
+        self._test_network_file = self._base_name + "_test.prototxt"
         self._solver_file = self._base_name + "_solver.prototxt"
 
         self._convert_params_to_caffe_network(copy.deepcopy(params))
@@ -70,12 +81,11 @@ class CaffeConvNet(object):
 
         preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
 
-        self._create_data_layer(preproc_params)
+        prev_layer_name = self._create_data_layer(preproc_params)
 
         assert len(all_conv_layers_params) == network_params['num_conv_layers']
         assert len(all_fc_layers_params) == network_params['num_fc_layers']
 
-        prev_layer_name = "data"
         for i, conv_layer_params in enumerate(all_conv_layers_params):
             current_layer_base_name = "conv_layer%d_" % i
             prev_layer_name = self._create_conv_layer(current_layer_base_name,
@@ -114,22 +124,32 @@ class CaffeConvNet(object):
 
         # validation network:
         self._caffe_net_validation = copy.deepcopy(self._caffe_net)
-        self._caffe_net_train.name = "valid"
+        self._add_softmax_accuray_layers(self._caffe_net_validation)
+        self._caffe_net_validation.name = "valid"
         self._caffe_net_validation.layers[0].hdf5_data_param.source = self._valid_file
         self._caffe_net_validation.layers[0].hdf5_data_param.batch_size = self._batch_size_valid
         #if self._mean_file:
         #    self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
 
+        self._caffe_net_test = copy.deepcopy(self._caffe_net)
+        self._add_softmax_accuray_layers(self._caffe_net_test)
+        self._caffe_net_test.name = "test"
+        self._caffe_net_test.layers[0].hdf5_data_param.source = self._test_file
+        self._caffe_net_test.layers[0].hdf5_data_param.batch_size = self._batch_size_test
+ 
+
+    def _add_softmax_accuray_layers(self, caffe_net):
+        """add a softmax and an accuracy layer to the net."""
         #softmax layer:
-        last_layer_top = self._caffe_net_validation.layers[-1].top[0]
-        prob_layer = self._caffe_net_validation.layers.add()
+        last_layer_top = caffe_net.layers[-1].top[0]
+        prob_layer = caffe_net.layers.add()
         prob_layer.name = "prob"
         prob_layer.type = caffe_pb2.LayerParameter.SOFTMAX
         prob_layer.bottom.append(last_layer_top)
         prob_layer.top.append("prob")
 
         #accuracy layer:
-        prob_layer = self._caffe_net_validation.layers.add()
+        prob_layer = caffe_net.layers.add()
         prob_layer.name = "accuracy"
         prob_layer.type = caffe_pb2.LayerParameter.ACCURACY
         prob_layer.bottom.append("prob")
@@ -145,12 +165,20 @@ class CaffeConvNet(object):
             data_layer.layer.scale = self._scale_factor
         data_layer.top.append("data")
         data_layer.top.append("label")
+        prev_layer_name = "data"
 
         augment_params = params["augment"]
         if augment_params["type"] == "augment":
-            augmentation_layer= self._caffe_net.layers.add()
+            augmentation_layer = self._caffe_net.layers.add()
+            augmentation_layer.type = caffe_pb2.LayerParameter.DATA_AUGMENTATION
             augmentation_layer.data_param.mirror = True
             augmentation_layer.data_param.crop_size = int(augment_params["crop_size"])
+            augmentation_layer.bottom.append("data")
+            prev_layer_name = "augmented_data"
+            augmentation_layer.top.append(prev_layer_name)
+
+        return prev_layer_name
+
 
 
     def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params):
@@ -379,6 +407,8 @@ class CaffeConvNet(object):
         self._solver.train_net = self._train_network_file
         self._solver.test_net.append(self._valid_network_file)
         self._solver.test_iter.append(int(self._num_valid / self._batch_size_valid))
+        self._solver.test_net.append(self._test_network_file)
+        self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
         #TODO: add both the validation aaaand the test set
 
         self._solver.termination_criterion = self._solver.TEST_ACCURACY
@@ -391,9 +421,9 @@ class CaffeConvNet(object):
         self._solver.snapshot = 10000000
         self._solver.snapshot_prefix = "caffenet"
         if self._device == "CPU":
-            self._solver.solver_mode = 0
+            self._solver.solver_mode = caffe_pb2.SolverParameter.CPU
         elif self._device == "GPU":
-            self._solver.solver_mode = 1
+            self._solver.solver_mode = caffe_pb2.SolverParameter.GPU
             self._solver.device_id = self._device_id
 
         self._solver.snapshot_on_exit = self._snapshot_on_exit
@@ -412,6 +442,9 @@ class CaffeConvNet(object):
 
         with open(self._valid_network_file, "w") as valid_network:
             valid_network.write(str(self._caffe_net_validation))
+
+        with open(self._test_network_file, "w") as test_network:
+            test_network.write(str(self._caffe_net_test))
 
     def run(self, hide_output=True):
         """
