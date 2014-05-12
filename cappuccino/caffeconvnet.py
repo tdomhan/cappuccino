@@ -98,40 +98,40 @@ class CaffeConvNet(object):
         """
         # train network
         self._caffe_net_train = copy.deepcopy(self._caffe_net)
-        self._caffe_net_train.layers[0].layer.source = self._train_file
-        self._caffe_net_train.layers[0].layer.batchsize = self._batch_size_train
-        if self._mean_file:
-            self._caffe_net_train.layers[0].layer.meanfile = self._mean_file
+        self._caffe_net_train.name = "train"
+        self._caffe_net_train.layers[0].hdf5_data_param.source = self._train_file
+        self._caffe_net_train.layers[0].hdf5_data_param.batch_size = self._batch_size_train
+        #if self._mean_file:
+        #    self._caffe_net_train.layers[0].layer.meanfile = self._mean_file
 
         # add train loss:
         last_layer_top = self._caffe_net_train.layers[-1].top[0]
         loss_layer = self._caffe_net_train.layers.add()
-        loss_layer.layer.name = "loss"
-        loss_layer.layer.type = "softmax_loss"
+        loss_layer.name = "loss"
+        loss_layer.type = caffe_pb2.LayerParameter.SOFTMAX_LOSS
         loss_layer.bottom.append(last_layer_top)
         loss_layer.bottom.append("label")
 
         # validation network:
         self._caffe_net_validation = copy.deepcopy(self._caffe_net)
-        self._caffe_net_validation.layers[0].layer.source = self._valid_file
-        self._caffe_net_validation.layers[0].layer.batchsize = self._batch_size_valid
-        if self._mean_file:
-            self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
-        #turn off mirroring:
-        self._caffe_net_validation.layers[0].layer.mirror = False
+        self._caffe_net_train.name = "valid"
+        self._caffe_net_validation.layers[0].hdf5_data_param.source = self._valid_file
+        self._caffe_net_validation.layers[0].hdf5_data_param.batch_size = self._batch_size_valid
+        #if self._mean_file:
+        #    self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
 
         #softmax layer:
         last_layer_top = self._caffe_net_validation.layers[-1].top[0]
         prob_layer = self._caffe_net_validation.layers.add()
-        prob_layer.layer.name = "prob"
-        prob_layer.layer.type = "softmax"
+        prob_layer.name = "prob"
+        prob_layer.type = caffe_pb2.LayerParameter.SOFTMAX
         prob_layer.bottom.append(last_layer_top)
         prob_layer.top.append("prob")
 
         #accuracy layer:
         prob_layer = self._caffe_net_validation.layers.add()
-        prob_layer.layer.name = "accuracy"
-        prob_layer.layer.type = "accuracy"
+        prob_layer.name = "accuracy"
+        prob_layer.type = caffe_pb2.LayerParameter.ACCURACY
         prob_layer.bottom.append("prob")
         prob_layer.bottom.append("label")
         prob_layer.top.append("accuracy")
@@ -139,8 +139,8 @@ class CaffeConvNet(object):
 
     def _create_data_layer(self, params):
         data_layer = self._caffe_net.layers.add()
-        data_layer.layer.name = "data"
-        data_layer.layer.type = "hdf5_data"
+        data_layer.name = "data"
+        data_layer.type = caffe_pb2.LayerParameter.HDF5_DATA
         if hasattr(self, "_scale_factor"):
             data_layer.layer.scale = self._scale_factor
         data_layer.top.append("data")
@@ -148,11 +148,10 @@ class CaffeConvNet(object):
 
         augment_params = params["augment"]
         if augment_params["type"] == "augment":
-            #note: will be turned off for the validation layer
-            data_layer.layer.mirror = True
+            augmentation_layer= self._caffe_net.layers.add()
+            augmentation_layer.data_param.mirror = True
+            augmentation_layer.data_param.crop_size = int(augment_params["crop_size"])
 
-            #note: will be turned off for the validation layer
-            data_layer.layer.cropsize = int(augment_params["crop_size"])
 
     def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params):
         """
@@ -166,22 +165,22 @@ class CaffeConvNet(object):
 
         caffe_conv_layer = self._caffe_net.layers.add()
         current_layer_name = current_layer_base_name + "conv"
-        caffe_conv_layer.layer.name = current_layer_name
-        caffe_conv_layer.layer.type = "conv"
-        caffe_conv_layer.layer.kernelsize = int(params.pop("kernelsize")) 
-        caffe_conv_layer.layer.num_output = int(params.pop("num_output_x_128")) * 128
-        caffe_conv_layer.layer.stride = int(params.pop("stride"))
+        caffe_conv_layer.name = current_layer_name
+        caffe_conv_layer.type = caffe_pb2.LayerParameter.CONVOLUTION
+        caffe_conv_layer.convolution_param.kernel_size = int(params.pop("kernelsize")) 
+        caffe_conv_layer.convolution_param.num_output = int(params.pop("num_output_x_128")) * 128
+        caffe_conv_layer.convolution_param.stride = int(params.pop("stride"))
         weight_filler_params = params.pop("weight-filler")
-        weight_filler = caffe_conv_layer.layer.weight_filler
+        weight_filler = caffe_conv_layer.convolution_param.weight_filler
         for param, param_val in weight_filler_params.iteritems():
             setattr(weight_filler, param, param_val)
 
-        caffe_conv_layer.layer.bias_filler.type = "constant"
+        caffe_conv_layer.convolution_param.bias_filler.type = "constant"
         bias_filler_params = params.pop("bias-filler")
         if bias_filler_params["type"] == "const-zero":
-            caffe_conv_layer.layer.bias_filler.value = 0.
+            caffe_conv_layer.convolution_param.bias_filler.value = 0.
         elif bias_filler_params["type"] == "const-one":
-            caffe_conv_layer.layer.bias_filler.value = 1.
+            caffe_conv_layer.convolution_param.bias_filler.value = 1.
         else:
             raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
 
@@ -189,15 +188,15 @@ class CaffeConvNet(object):
 #        bias_filler = caffe_conv_layer.layer.bias_filler
 #        for param, param_val in bias_filler_params.iteritems():
 #            setattr(bias_filler, param, param_val)
-        caffe_conv_layer.layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
-        caffe_conv_layer.layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
+        caffe_conv_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
+        caffe_conv_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
 
-        caffe_conv_layer.layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
-        caffe_conv_layer.layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        caffe_conv_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
+        caffe_conv_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
 
         padding_params = params.pop("padding")
         if padding_params["type"] == "zero-padding":
-            caffe_conv_layer.layer.pad = int(padding_params["size"])
+            caffe_conv_layer.convolution_param.pad = int(padding_params["size"])
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)
@@ -208,8 +207,8 @@ class CaffeConvNet(object):
         caffe_relu_layer = self._caffe_net.layers.add()
 
         current_layer_name = current_layer_base_name + "relu"
-        caffe_relu_layer.layer.name = current_layer_name
-        caffe_relu_layer.layer.type = "relu"
+        caffe_relu_layer.name = current_layer_name
+        caffe_relu_layer.type = caffe_pb2.LayerParameter.RELU
         caffe_relu_layer.bottom.append(prev_layer_name)
         #Note: the operation is made in-place by using the same name twice
         caffe_relu_layer.top.append(prev_layer_name)
@@ -222,41 +221,44 @@ class CaffeConvNet(object):
             caffe_pool_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "pool"
-            caffe_pool_layer.layer.name = current_layer_name
-            caffe_pool_layer.layer.type = "pool"
+            caffe_pool_layer.name = current_layer_name
+            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
             caffe_pool_layer.bottom.append(prev_layer_name)
             caffe_pool_layer.top.append(current_layer_name)
-            caffe_pool_layer.layer.pool = caffe_pool_layer.layer.MAX
-            caffe_pool_layer.layer.kernelsize = int(pooling_params["kernelsize"])
-            caffe_pool_layer.layer.stride = int(pooling_params["stride"])
+            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.MAX
+            caffe_pool_layer.pooling_param.kernel_size = int(pooling_params["kernelsize"])
+            caffe_pool_layer.pooling_param.stride = int(pooling_params["stride"])
 
             prev_layer_name = current_layer_name
         elif pooling_params["type"] == "ave":
             caffe_pool_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "pool"
-            caffe_pool_layer.layer.name = current_layer_name
-            caffe_pool_layer.layer.type = "pool"
+            caffe_pool_layer.name = current_layer_name
+            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
             caffe_pool_layer.bottom.append(prev_layer_name)
             caffe_pool_layer.top.append(current_layer_name)
-            caffe_pool_layer.layer.pool = caffe_pool_layer.layer.AVE
-            caffe_pool_layer.layer.kernelsize = int(pooling_params["kernelsize"])
-            caffe_pool_layer.layer.stride = int(pooling_params["stride"])
+            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.AVE
+            caffe_pool_layer.pooling_param.kernel_size = int(pooling_params["kernelsize"])
+            caffe_pool_layer.pooling_param.stride = int(pooling_params["stride"])
 
             prev_layer_name = current_layer_name
+        #TODO: add stochastic pooling
 
         normalization_params = params.pop("norm")
         if normalization_params["type"] == "lrn":
             caffe_norm_layer = self._caffe_net.layers.add()
 
+            #TODO: add across and within channel pooling!
+
             current_layer_name = current_layer_base_name + "norm"
-            caffe_norm_layer.layer.name = current_layer_name
-            caffe_norm_layer.layer.type = "lrn"
+            caffe_norm_layer.name = current_layer_name
+            caffe_norm_layer.type = caffe_pb2.LayerParameter.LRN
             caffe_norm_layer.bottom.append(prev_layer_name)
             caffe_norm_layer.top.append(current_layer_name)
-            caffe_norm_layer.layer.local_size = int(normalization_params["local_size"])
-            caffe_norm_layer.layer.alpha = int(normalization_params["alpha"])
-            caffe_norm_layer.layer.beta = int(normalization_params["beta"])
+            caffe_norm_layer.lrn_param.local_size = int(normalization_params["local_size"])
+            caffe_norm_layer.lrn_param.alpha = int(normalization_params["alpha"])
+            caffe_norm_layer.lrn_param.beta = int(normalization_params["beta"])
 
             prev_layer_name = current_layer_name
 
@@ -267,9 +269,9 @@ class CaffeConvNet(object):
             caffe_dropout_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "dropout"
-            caffe_dropout_layer.layer.name = current_layer_name
-            caffe_dropout_layer.layer.type = "dropout"
-            caffe_dropout_layer.layer.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.name = current_layer_name
+            caffe_dropout_layer.type = caffe_pb2.LayerParameter.DROPOUT
+            caffe_dropout_layer.dropout_param.dropout_ratio = dropout_params.pop("dropout_ratio")
             caffe_dropout_layer.bottom.append(prev_layer_name)
             caffe_dropout_layer.top.append(current_layer_name)
 
@@ -285,33 +287,33 @@ class CaffeConvNet(object):
         assert params.pop("type") == "fc"
 
         current_layer_name = current_layer_base_name + "fc"
-        caffe_fc_layer.layer.name = current_layer_name
-        caffe_fc_layer.layer.type = "innerproduct"
+        caffe_fc_layer.name = current_layer_name
+        caffe_fc_layer.type = caffe_pb2.LayerParameter.INNER_PRODUCT
         caffe_fc_layer.bottom.append(prev_layer_name)
         caffe_fc_layer.top.append(current_layer_name)
 
         if "num_output_x_128" in params:
-            caffe_fc_layer.layer.num_output = int(params.pop("num_output_x_128")) * 128
+            caffe_fc_layer.inner_product_param.num_output = int(params.pop("num_output_x_128")) * 128
         elif "num_output" in params:
-            caffe_fc_layer.layer.num_output = int(params.pop("num_output")) 
+            caffe_fc_layer.inner_product_param.num_output = int(params.pop("num_output")) 
 
-        caffe_fc_layer.layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
-        caffe_fc_layer.layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
+        caffe_fc_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
+        caffe_fc_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
 
-        caffe_fc_layer.layer.weight_decay.append(1)
-        caffe_fc_layer.layer.weight_decay.append(0)
+        caffe_fc_layer.weight_decay.append(1)
+        caffe_fc_layer.weight_decay.append(0)
 
         weight_filler_params = params.pop("weight-filler")
-        weight_filler = caffe_fc_layer.layer.weight_filler
+        weight_filler = caffe_fc_layer.inner_product_param.weight_filler
         for param, param_val in weight_filler_params.iteritems():
             setattr(weight_filler, param, param_val)
 
-        caffe_fc_layer.layer.bias_filler.type = "constant"
+        caffe_fc_layer.inner_product_param.bias_filler.type = "constant"
         bias_filler_params = params.pop("bias-filler")
         if bias_filler_params["type"] == "const-zero":
-            caffe_fc_layer.layer.bias_filler.value = 0.
+            caffe_fc_layer.inner_product_param.bias_filler.value = 0.
         elif bias_filler_params["type"] == "const-one":
-            caffe_fc_layer.layer.bias_filler.value = 1.
+            caffe_fc_layer.inner_product_param.bias_filler.value = 1.
         else:
             raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
 
@@ -323,8 +325,8 @@ class CaffeConvNet(object):
             caffe_relu_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "relu"
-            caffe_relu_layer.layer.name = current_layer_name
-            caffe_relu_layer.layer.type = "relu"
+            caffe_relu_layer.name = current_layer_name
+            caffe_relu_layer.type = caffe_pb2.LayerParameter.RELU
             caffe_relu_layer.bottom.append(prev_layer_name)
             #Note: the operation is made in-place by using the same name twice
             caffe_relu_layer.top.append(prev_layer_name)
@@ -336,9 +338,9 @@ class CaffeConvNet(object):
             caffe_dropout_layer = self._caffe_net.layers.add()
 
             current_layer_name = current_layer_base_name + "dropout"
-            caffe_dropout_layer.layer.name = current_layer_name
-            caffe_dropout_layer.layer.type = "dropout"
-            caffe_dropout_layer.layer.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.name = current_layer_name
+            caffe_dropout_layer.type = caffe_pb2.LayerParameter.DROPOUT
+            caffe_dropout_layer.dropout_param.dropout_ratio = dropout_params.pop("dropout_ratio")
             caffe_dropout_layer.bottom.append(prev_layer_name)
             caffe_dropout_layer.top.append(current_layer_name)
 
@@ -375,8 +377,9 @@ class CaffeConvNet(object):
         self._solver.momentum = params.pop("momentum")
         self._solver.weight_decay = params.pop("weight_decay")
         self._solver.train_net = self._train_network_file
-        self._solver.test_net = self._valid_network_file
-        self._solver.test_iter = int(self._num_valid / self._batch_size_valid)
+        self._solver.test_net.append(self._valid_network_file)
+        self._solver.test_iter.append(int(self._num_valid / self._batch_size_valid))
+        #TODO: add both the validation aaaand the test set
 
         self._solver.termination_criterion = self._solver.TEST_ACCURACY
         #stop, when no improvement for X epoches
