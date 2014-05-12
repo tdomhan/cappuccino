@@ -3,6 +3,35 @@ from subprocess import check_output, STDOUT, CalledProcessError
 import traceback
 import copy
 
+class TerminationCriterion(object):
+    def __init__(self):
+        pass
+
+    def add_to_solver_param(self, solver):
+        raise NotImplementedError("this is just a base class..")
+
+
+class TerminationCriterionMaxIter(TerminationCriterion):
+    def __init__(self, max_iterations):
+        self.max_iterations = max_iterations
+
+    def add_to_solver_param(self, solver):
+        solver.termination_criterion = self.caffe_pb2.SolverParameter.MAX_ITER
+        solver.max_iter = self.max_iter
+
+class TerminationCriterionTestAccuracy(TerminationCriterion):
+    def __init__(self, test_accuracy_stop_countdown):
+        """
+            test_accuracy_stop_countdown: countdown in epochs
+        """
+        self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
+
+    def add_to_solver_param(self, solver):
+        solver.termination_criterion = caffe_pb2.SolverParameter.TEST_ACCURACY
+        #stop, when no improvement for X epoches
+        solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * 10
+
+
 class CaffeConvNet(object):
     """
         Runs a caffe convnet with the given parameters
@@ -19,6 +48,7 @@ class CaffeConvNet(object):
                  batch_size_train = 128,
                  batch_size_valid = 100,
                  batch_size_test = 100,
+                 termination_criterion = TerminationCriterionTestAccuracy(5),
                  device = "GPU",
                  device_id = 0,
                  snapshot_on_exit = 0):
@@ -37,6 +67,7 @@ class CaffeConvNet(object):
             batch_size_train: the batch size during training
             batch_size_valid: the batch size during validation
             batch_size_test: the batch size during testing
+            termination_criterion: either "accuracy" or "max_iter"
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
             snapshot_on_exit: save network on exit?
@@ -56,6 +87,8 @@ class CaffeConvNet(object):
         self._num_train = num_train
         self._num_valid = num_valid
         self._num_test = num_valid
+        assert isinstance(termination_criterion, TerminationCriterion)
+        self._termination_criterion = termination_criterion
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
@@ -411,14 +444,12 @@ class CaffeConvNet(object):
         self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
         #TODO: add both the validation aaaand the test set
 
-        self._solver.termination_criterion = self._solver.TEST_ACCURACY
-        #stop, when no improvement for X epoches
-        self._solver.test_accuracy_stop_countdown = 3 * 10
-
+        self._termination_criterion.add_to_solver_param(self._solver)
+            
         #test 10 times per epoch:
         self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
         self._solver.display = int((0.01 * self._num_train) / self._batch_size_train)
-        self._solver.snapshot = 10000000
+        self._solver.snapshot = 0
         self._solver.snapshot_prefix = "caffenet"
         if self._device == "CPU":
             self._solver.solver_mode = caffe_pb2.SolverParameter.CPU
@@ -446,31 +477,33 @@ class CaffeConvNet(object):
         with open(self._test_network_file, "w") as test_network:
             test_network.write(str(self._caffe_net_test))
 
-    def run(self, hide_output=True):
+    def run(self):
         """
-            Run the given network and return the best validation performance.
+            Run the given network and return the logging output.
         """
         self._serialize()
-        return run_caffe(self._solver_file, hide_output=hide_output)
+        return run_caffe(self._solver_file)
 
 
 def run_caffe(solver_file, hide_output=True):
     """
-        Runs caffe and returns the accuracy.
+        Runs caffe and returns the logging output.
     """
     try:
-        if hide_output:
-            output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
-        else:
-            output = check_output(["train_net.sh", solver_file])
-
-        accuracy = output.split("\n")[-1]
-        if "Accuracy:" in accuracy:
-            accuracy = float(accuracy.split("Accuracy: ", 1)[1])
-            return 1.0 - accuracy
-        else:
-            #Failed?
-            raise RuntimeError("Failed running caffe: didn't find accuracy in output")
+        output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
+        return output
+#        if hide_output:
+#            output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
+#        else:
+#            output = check_output(["train_net.sh", solver_file])
+#
+#        accuracy = output.split("\n")[-1]
+#        if "Accuracy:" in accuracy:
+#            accuracy = float(accuracy.split("Accuracy: ", 1)[1])
+#            return 1.0 - accuracy
+#        else:
+#            #Failed?
+#            raise RuntimeError("Failed running caffe: didn't find accuracy in output")
     except CalledProcessError as e:
         raise RuntimeError("Failed running caffe. Return code: %s Output: %s" % (str(e.returncode), str(e.output)))
     except:
