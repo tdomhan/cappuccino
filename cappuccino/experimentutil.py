@@ -2,10 +2,10 @@ import fcntl
 import json
 import os
 import re
-import defaultdict
+from collections import defaultdict
 
 
-def store_result(dirname, params, result, learning_curve):
+def store_result(dirname, params, result, learning_curves, learning_curve_timestamps):
     """
         Store the results in a central file, one line of json per experiment.
 
@@ -17,7 +17,8 @@ def store_result(dirname, params, result, learning_curve):
 
         result_file.write(json.dumps({"loss": result,
                                       "params": params,
-                                      "learning_curve": learning_curve}))
+                                      "learning_curves": learning_curves,
+                                      "learning_curve_timestamps": learning_curve_timestamps}))
         result_file.write("\n")
 
 
