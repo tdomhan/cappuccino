@@ -1,6 +1,8 @@
 import fcntl
 import json
 import os
+import re
+import defaultdict
 
 
 def store_result(dirname, params, result, learning_curve):
@@ -42,3 +44,34 @@ def read_learning_curve():
         learning_curve = f.read().split(",")[:-1]
         return learning_curve
     return []
+
+def learning_curve_from_log(lines):
+    """
+    lines: the line by line output of caffe
+
+    returns learning curves for each network, timestamps
+    """
+    #example test accuracy:
+    #I0512 15:43:21.701407 13354 solver.cpp:183] valid test score #0: 0.0792
+    line_regex = "[^]]+]\s(\w+)\stest score\s#0:\s(\d+\.?\d*)"
+    #test timestamp line
+    #I0512 16:29:38.952080 13854 solver.cpp:141] Test timestamp 1399904978
+    time_regex = "[^]]+] Test timestamp (\d+)"
+
+    network_learning_curves = defaultdict(list)
+
+    learning_curve_timestamps = []
+
+    mday = 1
+    for line in lines:
+        m = re.match(time_regex, line.strip())
+        if m:
+            learning_curve_timestamps.append(m.group(1))
+        m = re.match(line_regex, line.strip())
+        if m:
+            network_name = m.group(1)
+            accuracy = m.group(2)
+
+            network_learning_curves[network_name].append(accuracy)
+
+    return network_learning_curve, learning_curve_timestamps
