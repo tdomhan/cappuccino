@@ -75,4 +75,4 @@ def learning_curve_from_log(lines):
 
             network_learning_curves[network_name].append(accuracy)
 
-    return network_learning_curve, learning_curve_timestamps
+    return network_learning_curves, learning_curve_timestamps

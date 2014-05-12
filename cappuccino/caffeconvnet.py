@@ -2,6 +2,7 @@ from caffe.proto import caffe_pb2
 from subprocess import check_output, STDOUT, CalledProcessError
 import traceback
 import copy
+import os
 
 class TerminationCriterion(object):
     def __init__(self):
@@ -16,7 +17,7 @@ class TerminationCriterionMaxIter(TerminationCriterion):
         self.max_epochs = max_epochs
 
     def add_to_solver_param(self, solver, iter_per_epoch):
-        solver.termination_criterion = self.caffe_pb2.SolverParameter.MAX_ITER
+        solver.termination_criterion = caffe_pb2.SolverParameter.MAX_ITER
         solver.max_iter = iter_per_epoch * self.max_epochs
 
 class TerminationCriterionTestAccuracy(TerminationCriterion):
@@ -490,7 +491,7 @@ def run_caffe(solver_file, hide_output=True):
         Runs caffe and returns the logging output.
     """
     try:
-        os.environ["GLOG_logtostderr"] = 1
+        os.environ["GLOG_logtostderr"] = "1"
         output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
         return output
 #        if hide_output:
