@@ -7,17 +7,17 @@ class TerminationCriterion(object):
     def __init__(self):
         pass
 
-    def add_to_solver_param(self, solver):
+    def add_to_solver_param(self, solver, num_train):
         raise NotImplementedError("this is just a base class..")
 
 
 class TerminationCriterionMaxIter(TerminationCriterion):
-    def __init__(self, max_iterations):
-        self.max_iterations = max_iterations
+    def __init__(self, max_epochs):
+        self.max_epochs = max_epochs
 
-    def add_to_solver_param(self, solver):
+    def add_to_solver_param(self, solver, num_train):
         solver.termination_criterion = self.caffe_pb2.SolverParameter.MAX_ITER
-        solver.max_iter = self.max_iter
+        solver.max_iter = num_train * self.max_epochs
 
 class TerminationCriterionTestAccuracy(TerminationCriterion):
     def __init__(self, test_accuracy_stop_countdown):
@@ -26,7 +26,7 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         """
         self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
 
-    def add_to_solver_param(self, solver):
+    def add_to_solver_param(self, solver, num_train):
         solver.termination_criterion = caffe_pb2.SolverParameter.TEST_ACCURACY
         #stop, when no improvement for X epoches
         solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * 10
@@ -444,7 +444,7 @@ class CaffeConvNet(object):
         self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
         #TODO: add both the validation aaaand the test set
 
-        self._termination_criterion.add_to_solver_param(self._solver)
+        self._termination_criterion.add_to_solver_param(self._solver, self._num_train)
             
         #test 10 times per epoch:
         self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
@@ -490,6 +490,7 @@ def run_caffe(solver_file, hide_output=True):
         Runs caffe and returns the logging output.
     """
     try:
+        os.environ["GLOG_logtostderr"] = 1
         output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
         return output
 #        if hide_output:
