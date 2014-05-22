@@ -87,12 +87,19 @@ class ConvNetSearchSpace(object):
             augment_params = {"type": "augment"}
             im_size = self.input_dimension[1]
             # the size of the image after cropping
-            augment_params["crop_size"] = Parameter(int(0.3*im_size), im_size-1, is_int=True)
+            max_crop_size = im_size / 2
+            augment_params["crop_size"] = Parameter(0, int(0.8*max_crop_size), is_int=True)
             params["augment"] = [{"type": "none"},
                                  augment_params]
         else:
             print "note: not a square image, will not use data augmentation."
             params["augment"] = [{"type": "none"}]
+
+        params["input_dropout"] = [{"type": "no_dropout"},
+                                   {"type": "dropout",
+                                    "dropout_ratio": Parameter(0.05, 0.95,
+                                                          is_int=False)}]
+ 
 
         return params
 
@@ -103,7 +110,8 @@ class ConvNetSearchSpace(object):
         else:
             params["num_conv_layers"] = Parameter(0,
                                                   self.max_conv_layers,
-                                                  default_val=self.max_conv_layers,
+                                                  #default_val=self.max_conv_layers,
+                                                  default_val=0,
                                                   is_int=True)
         #note we need at least one fc layer
         if self.max_fc_layers == 1:
@@ -111,30 +119,52 @@ class ConvNetSearchSpace(object):
         else:
             params["num_fc_layers"] = Parameter(1, # at least one layer that generates our output 
                                                 self.max_fc_layers,
-                                                default_val=self.max_fc_layers,
+                                                #default_val=self.max_fc_layers,
+                                                default_val=1,
                                                 is_int=True)
-        params["lr"] = Parameter(1e-10, 0.7, default_val=0.01,
+        params["lr"] = Parameter(1e-10, 0.9, default_val=0.01,
                                  is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
                                            is_int=False, log_scale=True)
+        params["batch_size_train"] = Parameter(10, 1000, default_val=100, is_int=True)
         fixed_policy = {"type": "fixed"}
+        """
+            exp_policy:
+                lr = base_lr * gamma^iteration
+        """
         exp_policy = {"type": "exp",
                       "gamma": Parameter(0.8, 0.99999, is_int=False)}
+        """
+            step_policy:
+            lr = base_lr * gamma^epoch
+        """
         step_policy = {"type": "step",
-                       "gamma": Parameter(0.05, 0.99, is_int=False),
+                       "gamma": Parameter(0.5, 0.99, is_int=False),
                        "epochcount": Parameter(1, 50, is_int=True)}
         #TODO: make gamma relative to the epoch count??
+        """
+            inv_policy:
+            lr = base_lr * (1+gamma*iter)^-power
+        """
         inv_policy = {"type": "inv",
                       "gamma": Parameter(0.00000001, 10000,
                                          is_int=False,
                                          log_scale=True),
-                      "power": Parameter(0.000001, 1,
+                      "power": Parameter(0.01, 1,
                                          is_int=False, log_scale = True)}
+        """
+            inv_bergstra_bengio:
+
+            lr = base_lr * epochcount / max(epochcount, epoch)
+        """
+        inv_bergstra_bengio_policy = {"type": "inv_bergstra_bengio",
+                                       "epochcount": Parameter(1, 50, is_int=True)}
         params["lr_policy"] = [fixed_policy,
                                exp_policy,
                                step_policy,
-                               inv_policy]
+                               inv_policy,
+                               inv_bergstra_bengio_policy]
         return params
 
     def get_conv_layer_subspace(self, layer_idx):
@@ -150,6 +180,8 @@ class ConvNetSearchSpace(object):
                               "size": Parameter(1, 3, is_int=True)}]
 
         params["type"] = "conv"
+        #TODO: make dependent on the image size
+        #TODO: try to alternatively parametrize relative to the input image size (percentage)
         params["kernelsize"] = Parameter(2, 8, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
         params["num_output_x_128"] = Parameter(1, 5, is_int=True)
@@ -222,12 +254,12 @@ class ConvNetSearchSpace(object):
         params = {}
         params["type"] = "fc"
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.00001, 0.1,
+                                    "std": Parameter(0.000001, 0.1,
                                                      default_val=0.005,
                                                      log_scale=True,
                                                      is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.00001, 0.1,
+                                    "std": Parameter(0.000001, 0.1,
                                                      default_val=0.005,
                                                      log_scale=True,
                                                      is_int=False)}]

@@ -4,6 +4,7 @@ import traceback
 import copy
 import os
 
+
 class TerminationCriterion(object):
     def __init__(self):
         pass
@@ -17,8 +18,9 @@ class TerminationCriterionMaxIter(TerminationCriterion):
         self.max_epochs = max_epochs
 
     def add_to_solver_param(self, solver, iter_per_epoch):
-        solver.termination_criterion = caffe_pb2.SolverParameter.MAX_ITER
+        solver.termination_criterion.append(caffe_pb2.SolverParameter.MAX_ITER)
         solver.max_iter = iter_per_epoch * self.max_epochs
+
 
 class TerminationCriterionTestAccuracy(TerminationCriterion):
     def __init__(self, test_accuracy_stop_countdown):
@@ -28,9 +30,21 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
 
     def add_to_solver_param(self, solver, iter_per_epoch):
-        solver.termination_criterion = caffe_pb2.SolverParameter.TEST_ACCURACY
+        solver.termination_criterion.append(caffe_pb2.SolverParameter.TEST_ACCURACY)
         #stop, when no improvement for X epoches
         solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * 10
+
+
+class TerminationCriterionExternal(TerminationCriterion):
+
+    def __init__(self, external_cmd, run_every_x_epochs):
+        self.external_cmd = external_cmd
+        self.run_every_x_epochs = run_every_x_epochs
+
+    def add_to_solver_param(self, solver, iter_per_epoch):
+        solver.termination_criterion.append(caffe_pb2.SolverParameter.EXTERNAL)
+        solver.external_term_criterion_cmd = self.external_cmd
+        solver.external_term_criterion_num_iter = self.run_every_x_epochs * iter_per_epoch
 
 
 class CaffeConvNet(object):
@@ -46,10 +60,9 @@ class CaffeConvNet(object):
                  num_test,
                  mean_file=None,
                  scale_factor=None,
-                 batch_size_train = 128,
                  batch_size_valid = 100,
                  batch_size_test = 100,
-                 termination_criterion = TerminationCriterionTestAccuracy(5),
+                 termination_criterions = [TerminationCriterionTestAccuracy(5)],
                  device = "GPU",
                  device_id = 0,
                  snapshot_on_exit = 0):
@@ -68,7 +81,7 @@ class CaffeConvNet(object):
             batch_size_train: the batch size during training
             batch_size_valid: the batch size during validation
             batch_size_test: the batch size during testing
-            termination_criterion: either "accuracy" or "max_iter"
+            termination_criterions: either "accuracy" or "max_iter"
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
             snapshot_on_exit: save network on exit?
@@ -79,17 +92,17 @@ class CaffeConvNet(object):
         self._mean_file = mean_file
         if scale_factor != None:
             self._scale_factor = scale_factor
-        assert num_train % batch_size_train == 0, "num_train must be a multiple of the train bach size"
         assert num_valid % batch_size_valid == 0, "num_valid must be a multiple of the valid bach size"
         assert num_test % batch_size_test == 0, "num_test must be a multiple of the test bach size"
-        self._batch_size_train = batch_size_train
+        #batch_size_train is a network parameter and set during network configuration
         self._batch_size_valid = batch_size_valid
         self._batch_size_test = batch_size_valid
         self._num_train = num_train
         self._num_valid = num_valid
         self._num_test = num_valid
-        assert isinstance(termination_criterion, TerminationCriterion)
-        self._termination_criterion = termination_criterion
+        for termination_criterion in termination_criterions:
+            assert isinstance(termination_criterion, TerminationCriterion)
+        self._termination_criterions = termination_criterions
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
@@ -204,12 +217,27 @@ class CaffeConvNet(object):
         augment_params = params["augment"]
         if augment_params["type"] == "augment":
             augmentation_layer = self._caffe_net.layers.add()
+            augmentation_layer.name = "data_augmentation"
             augmentation_layer.type = caffe_pb2.LayerParameter.DATA_AUGMENTATION
             augmentation_layer.data_param.mirror = True
             augmentation_layer.data_param.crop_size = int(augment_params["crop_size"])
             augmentation_layer.bottom.append("data")
             prev_layer_name = "augmented_data"
             augmentation_layer.top.append(prev_layer_name)
+
+        dropout_params = params["input_dropout"]
+        if dropout_params["type"] == "dropout":
+            caffe_dropout_layer = self._caffe_net.layers.add()
+
+            current_layer_name = "input_dropout"
+            caffe_dropout_layer.name = current_layer_name
+            caffe_dropout_layer.type = caffe_pb2.LayerParameter.DROPOUT
+            caffe_dropout_layer.dropout_param.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.bottom.append(prev_layer_name)
+            caffe_dropout_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+
 
         return prev_layer_name
 
@@ -415,6 +443,10 @@ class CaffeConvNet(object):
     def _create_network_parameters(self, params):
         params.pop("num_conv_layers")
         params.pop("num_fc_layers")
+
+        assert "batch_size_train" in params, "batch size for training missing"
+        self._batch_size_train = int(params.pop("batch_size_train"))
+
         self._solver.base_lr = params.pop("lr")
         lr_policy_params = params.pop("lr_policy")
         lr_policy = lr_policy_params.pop("type")
@@ -434,6 +466,8 @@ class CaffeConvNet(object):
         elif lr_policy == "inv":
             self._solver.gamma = lr_policy_params.pop("gamma")
             self._solver.power = lr_policy_params.pop("power")
+        elif lr_policy == "inv_bergstra_bengio":
+            self._solver.stepsize = int((self._num_train / self._batch_size_train) * lr_policy_params.pop("epochcount"))
         assert len(lr_policy_params) == 0, "More learning policy arguments given, than needed, " + str(lr_policy_params)
 
         self._solver.momentum = params.pop("momentum")
@@ -445,7 +479,8 @@ class CaffeConvNet(object):
         self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
         #TODO: add both the validation aaaand the test set
 
-        self._termination_criterion.add_to_solver_param(self._solver, self._num_train / self._batch_size_train)
+        for termination_criterion in self._termination_criterions:
+            termination_criterion.add_to_solver_param(self._solver, self._num_train / self._batch_size_train)
             
         #test 10 times per epoch:
         self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
@@ -494,18 +529,6 @@ def run_caffe(solver_file, hide_output=True):
         os.environ["GLOG_logtostderr"] = "1"
         output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
         return output
-#        if hide_output:
-#            output = check_output(["train_net.sh", solver_file], stderr=STDOUT)
-#        else:
-#            output = check_output(["train_net.sh", solver_file])
-#
-#        accuracy = output.split("\n")[-1]
-#        if "Accuracy:" in accuracy:
-#            accuracy = float(accuracy.split("Accuracy: ", 1)[1])
-#            return 1.0 - accuracy
-#        else:
-#            #Failed?
-#            raise RuntimeError("Failed running caffe: didn't find accuracy in output")
     except CalledProcessError as e:
         raise RuntimeError("Failed running caffe. Return code: %s Output: %s" % (str(e.returncode), str(e.output)))
     except:

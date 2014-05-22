@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 
 
-def store_result(dirname, params, result, learning_curves, learning_curve_timestamps):
+def store_result(dirname, params, loss, total_time, learning_curves, learning_curve_timestamps, predicted_loss=None):
     """
         Store the results in a central file, one line of json per experiment.
 
@@ -14,11 +14,14 @@ def store_result(dirname, params, result, learning_curves, learning_curve_timest
     with open(result_file_name, "a") as result_file:
         #lock file:
         fcntl.lockf(result_file.fileno(), fcntl.LOCK_EX)
-
-        result_file.write(json.dumps({"loss": result,
-                                      "params": params,
-                                      "learning_curves": learning_curves,
-                                      "learning_curve_timestamps": learning_curve_timestamps}))
+        result_line = {"loss": loss,
+                       "total_time": total_time,
+                       "params": params,
+                       "learning_curves": learning_curves,
+                       "learning_curve_timestamps": learning_curve_timestamps}
+        if predicted_loss is not None:
+            result_line["predicted_loss"] = predicted_loss
+        result_file.write(json.dumps(result_line))
         result_file.write("\n")
 
 
@@ -67,11 +70,11 @@ def learning_curve_from_log(lines):
     for line in lines:
         m = re.match(time_regex, line.strip())
         if m:
-            learning_curve_timestamps.append(m.group(1))
+            learning_curve_timestamps.append(int(m.group(1)))
         m = re.match(line_regex, line.strip())
         if m:
             network_name = m.group(1)
-            accuracy = m.group(2)
+            accuracy = float(m.group(2))
 
             network_learning_curves[network_name].append(accuracy)
 
