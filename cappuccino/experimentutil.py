@@ -5,7 +5,8 @@ import re
 from collections import defaultdict
 
 
-def store_result(dirname, params, loss, total_time, learning_curves, learning_curve_timestamps, predicted_loss=None):
+def store_result(dirname, params, loss, total_time, learning_curves,
+    learning_curve_timestamps, predicted_loss=None):
     """
         Store the results in a central file, one line of json per experiment.
 

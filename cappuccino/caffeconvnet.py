@@ -53,11 +53,11 @@ class CaffeConvNet(object):
     """
     def __init__(self, params,
                  train_file,
-                 valid_file,
-                 test_file,
                  num_train,
+                 valid_file,
                  num_valid,
-                 num_test,
+                 test_file=None,
+                 num_test=None,
                  mean_file=None,
                  scale_factor=None,
                  batch_size_valid = 100,
@@ -65,6 +65,7 @@ class CaffeConvNet(object):
                  termination_criterions = [TerminationCriterionTestAccuracy(5)],
                  device = "GPU",
                  device_id = 0,
+                 seed=13,
                  snapshot_on_exit = 0):
         """
             Parameters of the network as defined by ConvNetSearchSpace.
@@ -93,19 +94,21 @@ class CaffeConvNet(object):
         if scale_factor != None:
             self._scale_factor = scale_factor
         assert num_valid % batch_size_valid == 0, "num_valid must be a multiple of the valid bach size"
-        assert num_test % batch_size_test == 0, "num_test must be a multiple of the test bach size"
+        if num_test is not None or test_file is not None:
+            assert num_test % batch_size_test == 0, "num_test must be a multiple of the test bach size"
         #batch_size_train is a network parameter and set during network configuration
         self._batch_size_valid = batch_size_valid
         self._batch_size_test = batch_size_valid
         self._num_train = num_train
         self._num_valid = num_valid
-        self._num_test = num_valid
+        self._num_test = num_test
         for termination_criterion in termination_criterions:
             assert isinstance(termination_criterion, TerminationCriterion)
         self._termination_criterions = termination_criterions
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
+        self._seed = seed
         self._snapshot_on_exit = snapshot_on_exit
 
         self._base_name = "caffenet"
@@ -178,11 +181,12 @@ class CaffeConvNet(object):
         #if self._mean_file:
         #    self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
 
-        self._caffe_net_test = copy.deepcopy(self._caffe_net)
-        self._add_softmax_accuray_layers(self._caffe_net_test)
-        self._caffe_net_test.name = "test"
-        self._caffe_net_test.layers[0].hdf5_data_param.source = self._test_file
-        self._caffe_net_test.layers[0].hdf5_data_param.batch_size = self._batch_size_test
+        if self._test_file is not None:
+            self._caffe_net_test = copy.deepcopy(self._caffe_net)
+            self._add_softmax_accuray_layers(self._caffe_net_test)
+            self._caffe_net_test.name = "test"
+            self._caffe_net_test.layers[0].hdf5_data_param.source = self._test_file
+            self._caffe_net_test.layers[0].hdf5_data_param.batch_size = self._batch_size_test
  
 
     def _add_softmax_accuray_layers(self, caffe_net):
@@ -257,7 +261,8 @@ class CaffeConvNet(object):
         current_layer_name = current_layer_base_name + "conv"
         caffe_conv_layer.name = current_layer_name
         caffe_conv_layer.type = caffe_pb2.LayerParameter.CONVOLUTION
-        caffe_conv_layer.convolution_param.kernel_size = int(params.pop("kernelsize")) 
+        kernelsize = int(params.pop("kernelsize"))
+        caffe_conv_layer.convolution_param.kernel_size = kernelsize
         caffe_conv_layer.convolution_param.num_output = int(params.pop("num_output_x_128")) * 128
         caffe_conv_layer.convolution_param.stride = int(params.pop("stride"))
         weight_filler_params = params.pop("weight-filler")
@@ -286,7 +291,9 @@ class CaffeConvNet(object):
 
         padding_params = params.pop("padding")
         if padding_params["type"] == "zero-padding":
-            caffe_conv_layer.convolution_param.pad = int(padding_params["size"])
+            pad_size = int(float(padding_params["size"]) * kernelsize)
+            if pad_size > 0:
+                caffe_conv_layer.convolution_param.pad = int(padding_params["size"])
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)
@@ -475,13 +482,15 @@ class CaffeConvNet(object):
         self._solver.train_net = self._train_network_file
         self._solver.test_net.append(self._valid_network_file)
         self._solver.test_iter.append(int(self._num_valid / self._batch_size_valid))
-        self._solver.test_net.append(self._test_network_file)
-        self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
+        if self._test_file is not None:
+            self._solver.test_net.append(self._test_network_file)
+            self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
         #TODO: add both the validation aaaand the test set
 
         for termination_criterion in self._termination_criterions:
             termination_criterion.add_to_solver_param(self._solver, self._num_train / self._batch_size_train)
             
+        self._solver.random_seed = self._seed
         #test 10 times per epoch:
         self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
         self._solver.display = int((0.01 * self._num_train) / self._batch_size_train)
@@ -510,8 +519,9 @@ class CaffeConvNet(object):
         with open(self._valid_network_file, "w") as valid_network:
             valid_network.write(str(self._caffe_net_validation))
 
-        with open(self._test_network_file, "w") as test_network:
-            test_network.write(str(self._caffe_net_test))
+        if self._test_file is not None:
+            with open(self._test_network_file, "w") as test_network:
+                test_network.write(str(self._caffe_net_test))
 
     def run(self):
         """

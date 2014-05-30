@@ -1,9 +1,5 @@
 from math import log, exp
 
-#TODO: set sensible default values
-#TODO: other parameters to add?
-#TODO: more preprocessing + preprocessing parameters
-
 
 class Parameter:
     def __init__(self, min_val, max_val,
@@ -41,6 +37,9 @@ class Parameter:
 
 
 class ConvNetSearchSpace(object):
+    KERNEL_RELATIVE_MAX_SIZE = 0.25 # relative to the input image, how big can the kernel be?
+    KERNEL_ABSOLUTE_MIN_SIZE = 2
+
     """
         Search space for a convolutional neural network.
 
@@ -58,6 +57,8 @@ class ConvNetSearchSpace(object):
                  input_dimension,
                  max_conv_layers=3,
                  max_fc_layers=3,
+                 fc_layer_max_num_output_x_128=10,
+                 conv_layer_max_num_output_x_128=5,
                  num_classes=10):
         """
             input_dimension: dimension of the data input
@@ -71,6 +72,8 @@ class ConvNetSearchSpace(object):
         self.max_conv_layers = max_conv_layers
         assert max_fc_layers >= 1
         self.max_fc_layers = max_fc_layers
+        self.fc_layer_max_num_output_x_128 = fc_layer_max_num_output_x_128
+        self.conv_layer_max_num_output_x_128 = conv_layer_max_num_output_x_128
         self.num_classes = num_classes
         self.input_dimension = input_dimension
 
@@ -140,7 +143,7 @@ class ConvNetSearchSpace(object):
             lr = base_lr * gamma^epoch
         """
         step_policy = {"type": "step",
-                       "gamma": Parameter(0.5, 0.99, is_int=False),
+                       "gamma": Parameter(0.05, 0.99, is_int=False),
                        "epochcount": Parameter(1, 50, is_int=True)}
         #TODO: make gamma relative to the epoch count??
         """
@@ -163,7 +166,7 @@ class ConvNetSearchSpace(object):
         params["lr_policy"] = [fixed_policy,
                                exp_policy,
                                step_policy,
-                               inv_policy,
+                               inv_policy,  
                                inv_bergstra_bengio_policy]
         return params
 
@@ -173,18 +176,26 @@ class ConvNetSearchSpace(object):
         layer_idx: 1 based layer idx
         """
         assert layer_idx > 0 and layer_idx <= self.max_conv_layers
+
+        assert self.input_dimension[2] == self.input_dimension[1], "only square kernels supported right now."
+
+        max_kernel_size = max(int(ConvNetSearchSpace.KERNEL_RELATIVE_MAX_SIZE * self.input_dimension[1]),
+                              ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE)
+
         params = {}
         params["padding"] = [{"type": "none"},
                              {"type": "zero-padding",
-                              #TODO: should probably not be bigger than the kernel
-                              "size": Parameter(1, 3, is_int=True)}]
+                              #percentage of the size of the kernel
+                              "size": Parameter(0., 1.0, is_int=False)}]
 
         params["type"] = "conv"
         #TODO: make dependent on the image size
         #TODO: try to alternatively parametrize relative to the input image size (percentage)
-        params["kernelsize"] = Parameter(2, 8, is_int=True)
+        params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
+            max_kernel_size, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
-        params["num_output_x_128"] = Parameter(1, 5, is_int=True)
+        params["num_output_x_128"] = Parameter(1, self.conv_layer_max_num_output_x_128,
+            is_int=True)
         #params["stride"] = Parameter(1, 5, is_int=True)
         params["stride"] =  1
         params["weight-filler"] = [{"type": "gaussian",
@@ -225,12 +236,14 @@ class ConvNetSearchSpace(object):
 
         no_pooling = {"type": "none"}
         max_pooling = {"type": "max",
-                       "stride": Parameter(1, 3, is_int=True),
-                       "kernelsize": Parameter(2, 4, is_int=True)}
+                       "stride": Parameter(1, max_kernel_size/2, is_int=True),
+                       "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
+                            max_kernel_size, is_int=True)}
         #average pooling:
         ave_pooling = {"type": "ave",
-                       "stride": Parameter(1, 3, is_int=True),
-                       "kernelsize": Parameter(2, 4, is_int=True)}
+                       "stride": Parameter(1, max_kernel_size/2, is_int=True),
+                       "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
+                            max_kernel_size, is_int=True)}
 
         #        stochastic_pooling = {"type": "stochastic"}
         params["pooling"] = [no_pooling,
@@ -276,7 +289,8 @@ class ConvNetSearchSpace(object):
 
         last_layer = layer_idx == self.max_fc_layers
         if not last_layer:
-            params["num_output_x_128"] = Parameter(1, 10, is_int=True)
+            params["num_output_x_128"] = Parameter(1, self.fc_layer_max_num_output_x_128,
+                is_int=True)
             params["activation"] = "relu"
             params["dropout"] = [{"type": "dropout",
                                   "dropout_ratio": Parameter(0.05, 0.95,
@@ -376,6 +390,7 @@ class LeNet5(ConvNetSearchSpace):
             params["num_output"] = 84
 
         return params
+
 
 class Cifar10CudaConvnet(ConvNetSearchSpace):
     """
