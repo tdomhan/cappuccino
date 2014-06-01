@@ -57,8 +57,9 @@ class ConvNetSearchSpace(object):
                  input_dimension,
                  max_conv_layers=3,
                  max_fc_layers=3,
-                 fc_layer_max_num_output_x_128=10,
+                 fc_layer_max_num_output_x_128=48,
                  conv_layer_max_num_output_x_128=5,
+                 lr_half_life_max_epoch=50,
                  num_classes=10):
         """
             input_dimension: dimension of the data input
@@ -76,6 +77,7 @@ class ConvNetSearchSpace(object):
         self.conv_layer_max_num_output_x_128 = conv_layer_max_num_output_x_128
         self.num_classes = num_classes
         self.input_dimension = input_dimension
+        self.lr_half_life_max_epoch = lr_half_life_max_epoch
 
         if (self.input_dimension[0] > 1 and
             self.input_dimension[1] == 1 and
@@ -151,10 +153,8 @@ class ConvNetSearchSpace(object):
             lr = base_lr * (1+gamma*iter)^-power
         """
         inv_policy = {"type": "inv",
-                      "gamma": Parameter(0.00000001, 10000,
-                                         is_int=False,
-                                         log_scale=True),
-                      "power": Parameter(0.01, 1,
+                      "half_life": Parameter(1, self.lr_half_life_max_epoch, is_int=False),
+                      "power": Parameter(0.5, 1,
                                          is_int=False, log_scale = True)}
         """
             inv_bergstra_bengio:
@@ -162,12 +162,13 @@ class ConvNetSearchSpace(object):
             lr = base_lr * epochcount / max(epochcount, epoch)
         """
         inv_bergstra_bengio_policy = {"type": "inv_bergstra_bengio",
-                                       "epochcount": Parameter(1, 50, is_int=True)}
+                                      "half_life": Parameter(1,
+                                        self.lr_half_life_max_epoch, is_int=False)}
         params["lr_policy"] = [fixed_policy,
-                               exp_policy,
-                               step_policy,
-                               inv_policy,  
-                               inv_bergstra_bengio_policy]
+                               #exp_policy,
+                               #step_policy,
+                               #inv_bergstra_bengio_policy,
+                               inv_policy]
         return params
 
     def get_conv_layer_subspace(self, layer_idx):
@@ -186,7 +187,7 @@ class ConvNetSearchSpace(object):
         params["padding"] = [{"type": "none"},
                              {"type": "zero-padding",
                               #percentage of the size of the kernel
-                              "size": Parameter(0., 1.0, is_int=False)}]
+                              "relative_size": Parameter(0., 1.0, is_int=False)}]
 
         params["type"] = "conv"
         #TODO: make dependent on the image size
@@ -210,38 +211,47 @@ class ConvNetSearchSpace(object):
                                                      is_int=False)}]
         params["bias-filler"] = [{"type": "const-zero"},
                                  {"type": "const-one"}]
-        params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
-                                                   is_int=False,
-                                                   log_scale=True)
-        params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
-                                                 is_int=False, log_scale=True)
-        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10,
-                                                             default_val=1,
-                                                             is_int=False,
-                                                             log_scale=True)
-        params["bias-weight-decay_multiplier"] = Parameter(0.001, 10,
-                                                           default_val=0.001,
-                                                           is_int=False,
-                                                           log_scale=True)
+        #params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
+        #                                           is_int=False,
+        #                                           log_scale=True)
+        #params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
+        #                                         is_int=False, log_scale=True)
+        #params["weight-weight-decay_multiplier"] = Parameter(0.01, 10,
+        #                                                     default_val=1,
+        #                                                     is_int=False,
+        #                                                     log_scale=True)
+        #params["bias-weight-decay_multiplier"] = Parameter(0.001, 10,
+        #                                                   default_val=0.001,
+        #                                                  is_int=False,
+        #                                                   log_scale=True)
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
 
-        #TODO: check lrn parameter ranges
+        #TODO: check lrn parameter ranges (alpha and beta)
         normalization_params = {"type": "lrn",
-                                "local_size": Parameter(2, 6, is_int=True),
-                                "alpha": Parameter(0.00001, 0.001,
+                                "norm_region": [{"type": "across-channels"},
+                                                {"type": "within-channels"}],
+                                "local_size": Parameter(2, max_kernel_size, is_int=True),
+                                "alpha": Parameter(0.00001, 0.01,
                                                    default_val=0.0001,
                                                    log_scale=True),
-                                "beta": Parameter(0.6, 0.9, default_val=0.75)}
+                                "beta": Parameter(0.5, 1.0, default_val=0.75)
+                                }
+
         params["norm"] = [normalization_params,
                           {"type": "none"}]
 
+        #TODO: add padded pooling
         no_pooling = {"type": "none"}
         max_pooling = {"type": "max",
-                       "stride": Parameter(1, max_kernel_size/2, is_int=True),
+                       "stride": Parameter(1, 4, is_int=True),
                        "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
                             max_kernel_size, is_int=True)}
         #average pooling:
         ave_pooling = {"type": "ave",
-                       "stride": Parameter(1, max_kernel_size/2, is_int=True),
+                       "stride": Parameter(1, 4, is_int=True),
                        "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
                             max_kernel_size, is_int=True)}
 
@@ -278,13 +288,17 @@ class ConvNetSearchSpace(object):
                                                      is_int=False)}]
         params["bias-filler"] = [{"type": "const-zero"},
                                  {"type": "const-one"}]
-        params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
-                                                   is_int=False,
-                                                   log_scale=True)
-        params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
-                                                 is_int=False, log_scale=True)
-#        params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
-#        params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
+        #params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
+        #                                           is_int=False,
+        #                                           log_scale=True)
+        #params["bias-lr-multiplier"] = Parameter(0.01, 10, default_val=2,
+        #                                         is_int=False, log_scale=True)
+        #params["weight-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
+        #params["bias-weight-decay_multiplier"] = Parameter(0.01, 10, is_int=False)
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
 
 
         last_layer = layer_idx == self.max_fc_layers

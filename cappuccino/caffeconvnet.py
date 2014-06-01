@@ -1,5 +1,6 @@
 from caffe.proto import caffe_pb2
 from subprocess import check_output, STDOUT, CalledProcessError
+import math
 import traceback
 import copy
 import os
@@ -62,6 +63,7 @@ class CaffeConvNet(object):
                  scale_factor=None,
                  batch_size_valid = 100,
                  batch_size_test = 100,
+                 test_every_x_epoch = 0.1,
                  termination_criterions = [TerminationCriterionTestAccuracy(5)],
                  device = "GPU",
                  device_id = 0,
@@ -82,6 +84,7 @@ class CaffeConvNet(object):
             batch_size_train: the batch size during training
             batch_size_valid: the batch size during validation
             batch_size_test: the batch size during testing
+            test_every_x_epoch: epoch count or fraction thereof after which the test network is run.
             termination_criterions: either "accuracy" or "max_iter"
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
@@ -96,6 +99,7 @@ class CaffeConvNet(object):
         assert num_valid % batch_size_valid == 0, "num_valid must be a multiple of the valid bach size"
         if num_test is not None or test_file is not None:
             assert num_test % batch_size_test == 0, "num_test must be a multiple of the test bach size"
+        self._test_every_x_epoch = test_every_x_epoch
         #batch_size_train is a network parameter and set during network configuration
         self._batch_size_valid = batch_size_valid
         self._batch_size_test = batch_size_valid
@@ -291,9 +295,9 @@ class CaffeConvNet(object):
 
         padding_params = params.pop("padding")
         if padding_params["type"] == "zero-padding":
-            pad_size = int(float(padding_params["size"]) * kernelsize)
+            pad_size = int(math.ceil(float(padding_params["relative_size"]) * 0.5 * kernelsize))
             if pad_size > 0:
-                caffe_conv_layer.convolution_param.pad = int(padding_params["size"])
+                caffe_conv_layer.convolution_param.pad = int(padding_params["relative_size"])
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)
@@ -346,16 +350,20 @@ class CaffeConvNet(object):
         if normalization_params["type"] == "lrn":
             caffe_norm_layer = self._caffe_net.layers.add()
 
-            #TODO: add across and within channel pooling!
-
             current_layer_name = current_layer_base_name + "norm"
             caffe_norm_layer.name = current_layer_name
             caffe_norm_layer.type = caffe_pb2.LayerParameter.LRN
             caffe_norm_layer.bottom.append(prev_layer_name)
             caffe_norm_layer.top.append(current_layer_name)
             caffe_norm_layer.lrn_param.local_size = int(normalization_params["local_size"])
-            caffe_norm_layer.lrn_param.alpha = int(normalization_params["alpha"])
-            caffe_norm_layer.lrn_param.beta = int(normalization_params["beta"])
+            caffe_norm_layer.lrn_param.alpha = float(normalization_params["alpha"])
+            caffe_norm_layer.lrn_param.beta = float(normalization_params["beta"])
+            assert "norm_region" in  normalization_params
+            norm_region_type = normalization_params["norm_region"]["type"]
+            if norm_region_type == "across-channels":
+                caffe_norm_layer.lrn_param.norm_region = caffe_pb2.LRNParameter.ACROSS_CHANNELS
+            elif norm_region_type == "within-channels":
+                caffe_norm_layer.lrn_param.norm_region = caffe_pb2.LRNParameter.WITHIN_CHANNEL
 
             prev_layer_name = current_layer_name
 
@@ -397,8 +405,8 @@ class CaffeConvNet(object):
         caffe_fc_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
         caffe_fc_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
 
-        caffe_fc_layer.weight_decay.append(1)
-        caffe_fc_layer.weight_decay.append(0)
+        caffe_fc_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
+        caffe_fc_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
 
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_fc_layer.inner_product_param.weight_filler
@@ -454,6 +462,8 @@ class CaffeConvNet(object):
         assert "batch_size_train" in params, "batch size for training missing"
         self._batch_size_train = int(params.pop("batch_size_train"))
 
+        train_iter_per_epoch = float(self._num_train) / self._batch_size_train
+
         self._solver.base_lr = params.pop("lr")
         lr_policy_params = params.pop("lr_policy")
         lr_policy = lr_policy_params.pop("type")
@@ -471,10 +481,15 @@ class CaffeConvNet(object):
             else:
                 assert False, "Neither stepsize nor epochcount given."
         elif lr_policy == "inv":
-            self._solver.gamma = lr_policy_params.pop("gamma")
-            self._solver.power = lr_policy_params.pop("power")
+            half_life = train_iter_per_epoch * lr_policy_params.pop("half_life")
+            power = lr_policy_params.pop("power")
+            self._solver.gamma = (2.**(1./power) - 1.) / half_life
+            self._solver.power = power
         elif lr_policy == "inv_bergstra_bengio":
-            self._solver.stepsize = int((self._num_train / self._batch_size_train) * lr_policy_params.pop("epochcount"))
+            #is this parametrization correct?
+            half_life = train_iter_per_epoch * lr_policy_params.pop("half_life")
+            tau = 0.5 * half_life
+            self._solver.stepsize = int(train_iter_per_epoch  * lr_policy_params.pop("epochcount"))
         assert len(lr_policy_params) == 0, "More learning policy arguments given, than needed, " + str(lr_policy_params)
 
         self._solver.momentum = params.pop("momentum")
@@ -485,15 +500,14 @@ class CaffeConvNet(object):
         if self._test_file is not None:
             self._solver.test_net.append(self._test_network_file)
             self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
-        #TODO: add both the validation aaaand the test set
 
         for termination_criterion in self._termination_criterions:
             termination_criterion.add_to_solver_param(self._solver, self._num_train / self._batch_size_train)
             
         self._solver.random_seed = self._seed
-        #test 10 times per epoch:
-        self._solver.test_interval = int((0.1 * self._num_train) / self._batch_size_train)
-        self._solver.display = int((0.01 * self._num_train) / self._batch_size_train)
+        #test X times per epoch:
+        self._solver.test_interval = int(self._test_every_x_epoch * train_iter_per_epoch)
+        self._solver.display = int(0.01 * train_iter_per_epoch)
         self._solver.snapshot = 0
         self._solver.snapshot_prefix = "caffenet"
         if self._device == "CPU":
