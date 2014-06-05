@@ -1,7 +1,7 @@
 from math import log, exp
 
 
-class Parameter:
+class Parameter(object):
     def __init__(self, min_val, max_val,
                  default_val = None,
                  is_int = False,
@@ -9,36 +9,44 @@ class Parameter:
         assert(min_val < max_val)
         self.min_val = min_val
         self.max_val = max_val
-        if default_val is None:
-            if log_scale:
-                self.default_val = exp(0.5 * log(min_val) + 0.5 * log(max_val))
-            else:
-                self.default_val = 0.5 * min_val + 0.5 * max_val
-        else:
-            assert(default_val <= max_val)
-            assert(min_val <= default_val)
-            self.default_val = default_val
+        self.log_scale = log_scale
+        self.default_val = default_val
         self.is_int = is_int
         if self.is_int:
             assert type(self.min_val) is int
             assert type(self.min_val) is int
             self.default_val = int(self.default_val)
-        self.log_scale = log_scale
+
+    @property
+    def default_val(self):
+        return self._default_val
+
+    @default_val.setter
+    def default_val(self, value):
+        if value is None:
+            if self.log_scale:
+                self._default_val = exp(0.5 * log(self.min_val) + 0.5 * log(self.max_val))
+            else:
+                self._default_val = 0.5 * self.min_val + 0.5 * self.max_val
+        else:
+            assert(value <= self.max_val), "default value bigger than max"
+            assert(self.min_val <= value), "default value smaller than min"
+            self._default_val = value
 
     def __str__(self):
         return "Parameter(min: %d, max: %d, default: %d, is_int: %d, log_scale: %d)" % (self.min_val,
-                                                            self.max_val,
-                                                            self.default_val,
-                                                            self.is_int,
-                                                            self.log_scale)
+            self.max_val,
+            self.default_val,
+            self.is_int,
+            self.log_scale)
     
     def __repr__(self):
         return self.__str__()
 
 
 class ConvNetSearchSpace(object):
-    KERNEL_RELATIVE_MAX_SIZE = 0.25 # relative to the input image, how big can the kernel be?
-    KERNEL_ABSOLUTE_MIN_SIZE = 2
+    KERNEL_RELATIVE_MAX_SIZE = 0.3 # relative to the input image, how big can the kernel be?
+    KERNEL_ABSOLUTE_MIN_SIZE = 3
 
     """
         Search space for a convolutional neural network.
@@ -60,7 +68,8 @@ class ConvNetSearchSpace(object):
                  fc_layer_max_num_output_x_128=48,
                  conv_layer_max_num_output_x_128=5,
                  lr_half_life_max_epoch=50,
-                 num_classes=10):
+                 num_classes=10,
+                 use_only_smooth_policies=True):
         """
             input_dimension: dimension of the data input
                              in case of image data: channels x width x height
@@ -78,6 +87,7 @@ class ConvNetSearchSpace(object):
         self.num_classes = num_classes
         self.input_dimension = input_dimension
         self.lr_half_life_max_epoch = lr_half_life_max_epoch
+        self.use_only_smooth_policies = use_only_smooth_policies
 
         if (self.input_dimension[0] > 1 and
             self.input_dimension[1] == 1 and
@@ -93,7 +103,7 @@ class ConvNetSearchSpace(object):
             im_size = self.input_dimension[1]
             # the size of the image after cropping
             max_crop_size = im_size / 2
-            augment_params["crop_size"] = Parameter(0, int(0.8*max_crop_size), is_int=True)
+            augment_params["crop_size"] = Parameter(0, int(0.75*max_crop_size), is_int=True)
             params["augment"] = [{"type": "none"},
                                  augment_params]
         else:
@@ -127,7 +137,7 @@ class ConvNetSearchSpace(object):
                                                 #default_val=self.max_fc_layers,
                                                 default_val=1,
                                                 is_int=True)
-        params["lr"] = Parameter(1e-10, 0.9, default_val=0.01,
+        params["lr"] = Parameter(1e-7, 0.9, default_val=0.001, #Parameter(1e-10, 0.9, default_val=0.001,
                                  is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
@@ -165,10 +175,13 @@ class ConvNetSearchSpace(object):
                                       "half_life": Parameter(1,
                                         self.lr_half_life_max_epoch, is_int=False)}
         params["lr_policy"] = [fixed_policy,
-                               #exp_policy,
-                               #step_policy,
-                               #inv_bergstra_bengio_policy,
+                               #exp_policy, #TODO the half-life based policy needs to be fixed before adding again.
                                inv_policy]
+        if not self.use_only_smooth_policies:
+            #also add non-smooth policies, that potentially hurt the learning rate prediction.
+            params["lr_policy"].append(step_policy)
+            params["lr_policy"].append(inv_bergstra_bengio_policy)
+
         return params
 
     def get_conv_layer_subspace(self, layer_idx):
@@ -184,14 +197,13 @@ class ConvNetSearchSpace(object):
                               ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE)
 
         params = {}
-        params["padding"] = [{"type": "none"},
-                             {"type": "zero-padding",
-                              #percentage of the size of the kernel
-                              "relative_size": Parameter(0., 1.0, is_int=False)}]
+        #params["padding"] = [{"type": "none"},
+        #                     {"type": "zero-padding",
+        #                      #percentage of the size of the kernel
+        #                      "relative_size": Parameter(0., 1.0, is_int=False)}]
+        params["padding"] = {"type": "implicit"}
 
         params["type"] = "conv"
-        #TODO: make dependent on the image size
-        #TODO: try to alternatively parametrize relative to the input image size (percentage)
         params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
             max_kernel_size, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
@@ -200,13 +212,13 @@ class ConvNetSearchSpace(object):
         #params["stride"] = Parameter(1, 5, is_int=True)
         params["stride"] =  1
         params["weight-filler"] = [{"type": "gaussian",
-                                    "std": Parameter(0.00001,.1,
-                                                     default_val=0.01,
+                                    "std": Parameter(0.000001,.1,
+                                                     default_val=0.0001,
                                                      log_scale=True,
                                                      is_int=False)},
                                    {"type": "xavier",
-                                    "std": Parameter(0.00001,.1,
-                                                     default_val=0.01,
+                                    "std": Parameter(0.000001,.1,
+                                                     default_val=0.0001,
                                                      log_scale=True,
                                                      is_int=False)}]
         params["bias-filler"] = [{"type": "const-zero"},
@@ -227,6 +239,7 @@ class ConvNetSearchSpace(object):
         params["weight-lr-multiplier"] = 1
         params["bias-lr-multiplier"] = 2
         params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
         params["bias-weight-decay_multiplier"] = 0
 
         #TODO: check lrn parameter ranges (alpha and beta)
@@ -240,8 +253,8 @@ class ConvNetSearchSpace(object):
                                 "beta": Parameter(0.5, 1.0, default_val=0.75)
                                 }
 
-        params["norm"] = [normalization_params,
-                          {"type": "none"}]
+        params["norm"] = [{"type": "none"},
+                          normalization_params]
 
         #TODO: add padded pooling
         no_pooling = {"type": "none"}
@@ -416,16 +429,18 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
         https://code.google.com/p/cuda-convnet/
     """
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super(Cifar10CudaConvnet, self).__init__(max_conv_layers=3,
                                                  max_fc_layers=1,
                                                  num_classes=10,
-                                                 input_dimension=(3, 32, 32))
+                                                 input_dimension=(3, 32, 32),
+                                                 *args, **kwargs)
 
     def get_preprocessing_parameter_subspace(self):
         params = super(Cifar10CudaConvnet, self).get_preprocessing_parameter_subspace()
+        #crop by 4 on every side to get 32 - 4 - 4 = 24
         params["augment"] = {"type": "augment",
-                             "crop_size": 24}
+                             "crop_size": 4}
 
         return params
 
@@ -435,15 +450,9 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
         #fix the number of layers
         network_params["num_conv_layers"] = self.max_conv_layers
         network_params["num_fc_layers"] = self.max_fc_layers
-        network_params["momentum"] = 0.8
-        network_params["lr"] = 0.01
-        network_params["weight_decay"] = 0.004
-
-        #TODO: change this!
-        network_params["lr_policy"] = {}
-        network_params["lr_policy"]["type"] = "step"
-        network_params["lr_policy"]["epochcount"] = 4
-        network_params["lr_policy"]["gamma"] = 0.1
+        network_params["momentum"].default_val = 0.9
+        network_params["lr"].default_val = 0.001
+        network_params["weight_decay"].default_val = 0.004
 
         return network_params
 
@@ -454,82 +463,54 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
 
         params["weight-lr-multiplier"] = 1
         params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
         params["bias-weight-decay_multiplier"] = 0
 
-        params["norm"] = {"type": "none"}
-
-        params["dropout"] = {"type": "no_dropout"} 
-
         if layer_idx == 0:
-            params["weight-filler"] = {"type": "gaussian",
-                                       "std": 0.0001}
- 
             params["padding"] = {"type": "zero-padding",
-                                 "size": 2}
+                                 "absolute_size": 2}
             params["kernelsize"] = 5
             params["stride"] = 1
-            params["num_output_x_128"] = 2
             params["pooling"] = {"type": "max",
                                  "stride": 2,
                                  "kernelsize": 3}
 
-            params["weight-weight-decay_multiplier"] = 0  
-
         elif layer_idx == 1:
-            params["weight-filler"] = {"type": "gaussian",
-                                       "std": 0.01}
- 
             params["padding"] = {"type": "zero-padding",
-                                 "size": 1}
+                                 "absolute_size": 2}
             params["kernelsize"] = 5
             params["stride"] = 1
-            params["num_output_x_128"] = 2
             params["pooling"] = {"type": "max",
                                  "stride": 2,
                                  "kernelsize": 3}
 
             params["weight-weight-decay_multiplier"] = 0  
         elif layer_idx == 2:
-            params["weight-filler"] = {"type": "gaussian",
-                                       "std": 0.04}
- 
             params["padding"] = {"type": "zero-padding",
-                                 "size": 1}
+                                 "absolute_size": 1}
             params["kernelsize"] = 3
             params["stride"] = 1
-            params["num_output_x_128"] = 1
             params["pooling"] = {"type": "none"}
-
-            params["weight-weight-decay_multiplier"] = 1  
         elif layer_idx == 3:
-            params["weight-filler"] = {"type": "gaussian",
-                                       "std": 0.04}
             params["padding"] = {"type": "zero-padding",
-                                 "size": 1}
+                                 "absolute_size": 1}
             params["kernelsize"] = 3
             params["stride"] = 1
-            params["num_output_x_128"] = 1
-            params["pooling"] = {"type": "none"}
- 
-            params["weight-weight-decay_multiplier"] = 1  
+            params["pooling"] = {"type": "none"} 
 
  
         return params
 
     def get_fc_layer_subspace(self, layer_idx):
         params = super(Cifar10CudaConvnet, self).get_fc_layer_subspace(layer_idx)
-        assert layer_idx == 0
-        params["weight-filler"] = {"type": "gaussian",
-                                   "std": 0.01}
-        params["dropout"] = {"use_dropout": "no_dropout"} 
         params["num_output"] = self.num_classes
 
         params["bias-filler"] = {"type": "const-zero"}
 
         params["weight-lr-multiplier"] = 1
         params["bias-lr-multiplier"] = 2
-        #params["weight-weight-decay_multiplier"] = 1  
-        #params["bias-weight-decay_multiplier"] = 0
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
 
         return params
 

@@ -295,9 +295,16 @@ class CaffeConvNet(object):
 
         padding_params = params.pop("padding")
         if padding_params["type"] == "zero-padding":
-            pad_size = int(math.ceil(float(padding_params["relative_size"]) * 0.5 * kernelsize))
-            if pad_size > 0:
-                caffe_conv_layer.convolution_param.pad = int(padding_params["relative_size"])
+            if "relative_size" in padding_params:
+                pad_size = int(math.floor(float(padding_params["relative_size"]) * 0.5 * kernelsize))
+                if pad_size > 0:
+                    caffe_conv_layer.convolution_param.pad = pad_size
+            elif "absolute_size" in padding_params:
+                caffe_conv_layer.convolution_param.pad = int(padding_params["absolute_size"])
+        elif padding_params["type"] == "implicit":
+            #set it implicitly dependent on the kernel size:
+            pad_size = int(math.floor(0.5 * kernelsize))
+            caffe_conv_layer.convolution_param.pad = pad_size
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)

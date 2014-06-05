@@ -39,7 +39,8 @@ def construct_parameter_tree_from_labels(params,
             if idx == len(tree_path)-1:
                 #are we overriding with a different value
                 assert step not in current_node or current_node[step] == value,\
-                        "%s already set (%s) to: %s vs %s" % (step, tree_path, str(current_node[step]), str(value))
+                        "%s already set (%s) to: %s vs %s all params: %s" % (step,tree_path,
+                            str(current_node[step]), str(value), str(params))
                 assert node_type == None, ('Can\'t have a value on a choice node without a separate label.'
                                            'e.g. this is illegal: {"convlayer0#weight-filler@gaussian": 2}')
                 #last, set value
