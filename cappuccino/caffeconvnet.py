@@ -14,7 +14,7 @@ class TerminationCriterion(object):
         raise NotImplementedError("this is just a base class..")
 
 
-class TerminationCriterionMaxIter(TerminationCriterion):
+class TerminationCriterionMaxEpoch(TerminationCriterion):
     def __init__(self, max_epochs):
         self.max_epochs = max_epochs
 

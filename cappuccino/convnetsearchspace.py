@@ -209,8 +209,9 @@ class ConvNetSearchSpace(object):
         params["kernelsize_odd"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE/2-1,
            max_kernel_size/2-1, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
-        params["num_output"] = Parameter(16, self.conv_layer_max_num_output,
-            default_val=min(96, self.conv_layer_max_num_output),
+        MIN_NUM_OUTPUT=16
+        params["num_output"] = Parameter(MIN_NUM_OUTPUT, self.conv_layer_max_num_output,
+            default_val=max(MIN_NUM_OUTPUT, min(96, self.conv_layer_max_num_output)),
             is_int=True)
         #params["stride"] = Parameter(1, 5, is_int=True)
         params["stride"] =  1
@@ -521,9 +522,9 @@ class Cifar10ConvFixed(ConvNetSearchSpace):
 
     def __init__(self, *args, **kwargs):
         super(Cifar10ConvFixed, self).__init__(max_conv_layers=3,
-                                                 max_fc_layers=3,
-                                                 num_classes=10,
-                                                 input_dimension=(3, 32, 32),
+                                               max_fc_layers=3,
+                                               num_classes=10,
+                                               input_dimension=(3, 32, 32),
                                                  *args, **kwargs)
 
     def get_preprocessing_parameter_subspace(self):
