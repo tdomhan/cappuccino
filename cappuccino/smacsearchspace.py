@@ -127,6 +127,9 @@ def subspace_to_smac(label, params, subspace,
         choice_param = SMACCategorialParameter(name=choice_param_name,
                                                values=types,
                                                default=types[0])
+        #TODO: the choice parameter can have dependencies itself
+        choice_param.depends_on = copy.deepcopy(dependencies)
+
         params.append(choice_param)
         for idx, item in enumerate(subspace):
             assert("type" in item)

@@ -66,7 +66,7 @@ class ConvNetSearchSpace(object):
                  max_conv_layers=3,
                  max_fc_layers=3,
                  fc_layer_max_num_output_x_128=48,
-                 conv_layer_max_num_output_x_128=5,
+                 conv_layer_max_num_output=512,
                  lr_half_life_max_epoch=50,
                  num_classes=10,
                  use_only_smooth_policies=True):
@@ -83,7 +83,7 @@ class ConvNetSearchSpace(object):
         assert max_fc_layers >= 1
         self.max_fc_layers = max_fc_layers
         self.fc_layer_max_num_output_x_128 = fc_layer_max_num_output_x_128
-        self.conv_layer_max_num_output_x_128 = conv_layer_max_num_output_x_128
+        self.conv_layer_max_num_output = conv_layer_max_num_output
         self.num_classes = num_classes
         self.input_dimension = input_dimension
         self.lr_half_life_max_epoch = lr_half_life_max_epoch
@@ -103,7 +103,7 @@ class ConvNetSearchSpace(object):
             im_size = self.input_dimension[1]
             # the size of the image after cropping
             max_crop_size = im_size / 2
-            augment_params["crop_size"] = Parameter(0, int(0.75*max_crop_size), is_int=True)
+            augment_params["crop_size"] = Parameter(1, int(0.75*max_crop_size), is_int=True)
             params["augment"] = [{"type": "none"},
                                  augment_params]
         else:
@@ -137,7 +137,7 @@ class ConvNetSearchSpace(object):
                                                 #default_val=self.max_fc_layers,
                                                 default_val=1,
                                                 is_int=True)
-        params["lr"] = Parameter(1e-7, 0.9, default_val=0.001, #Parameter(1e-10, 0.9, default_val=0.001,
+        params["lr"] = Parameter(1e-7, 0.5, default_val=0.001, #Parameter(1e-10, 0.9, default_val=0.001,
                                  is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
         params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
@@ -204,10 +204,13 @@ class ConvNetSearchSpace(object):
         params["padding"] = {"type": "implicit"}
 
         params["type"] = "conv"
-        params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
-            max_kernel_size, is_int=True)
+        #params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
+        #    max_kernel_size, is_int=True)
+        params["kernelsize_odd"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE/2-1,
+           max_kernel_size/2-1, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
-        params["num_output_x_128"] = Parameter(1, self.conv_layer_max_num_output_x_128,
+        params["num_output"] = Parameter(16, self.conv_layer_max_num_output,
+            default_val=min(96, self.conv_layer_max_num_output),
             is_int=True)
         #params["stride"] = Parameter(1, 5, is_int=True)
         params["stride"] =  1
@@ -244,8 +247,9 @@ class ConvNetSearchSpace(object):
 
         #TODO: check lrn parameter ranges (alpha and beta)
         normalization_params = {"type": "lrn",
-                                "norm_region": [{"type": "across-channels"},
-                                                {"type": "within-channels"}],
+                                "norm_region": {"type": "across-channels"},
+                                #NOTE: within-channels throws a weird bug right now, let's remove it from the space until this is fixed.
+                                #{"type": "within-channels"}
                                 "local_size": Parameter(2, max_kernel_size, is_int=True),
                                 "alpha": Parameter(0.00001, 0.01,
                                                    default_val=0.0001,
@@ -256,17 +260,17 @@ class ConvNetSearchSpace(object):
         params["norm"] = [{"type": "none"},
                           normalization_params]
 
-        #TODO: add padded pooling
+        #TODO: think about more sensible parametrization!
         no_pooling = {"type": "none"}
         max_pooling = {"type": "max",
-                       "stride": Parameter(1, 4, is_int=True),
-                       "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
-                            max_kernel_size, is_int=True)}
+                       "stride": 2,#Parameter(1, 3, is_int=True),
+                       "kernelsize": 3#Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE, max_kernel_size, is_int=True)
+                       }
         #average pooling:
         ave_pooling = {"type": "ave",
-                       "stride": Parameter(1, 4, is_int=True),
-                       "kernelsize": Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
-                            max_kernel_size, is_int=True)}
+                       "stride": 2,#Parameter(1, 3, is_int=True),
+                       "kernelsize": 3#Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE, max_kernel_size, is_int=True)
+                       }
 
         #        stochastic_pooling = {"type": "stochastic"}
         params["pooling"] = [no_pooling,
@@ -317,7 +321,8 @@ class ConvNetSearchSpace(object):
         last_layer = layer_idx == self.max_fc_layers
         if not last_layer:
             params["num_output_x_128"] = Parameter(1, self.fc_layer_max_num_output_x_128,
-                is_int=True)
+                default_val=min(8, self.fc_layer_max_num_output_x_128),
+                is_int=True,)
             params["activation"] = "relu"
             params["dropout"] = [{"type": "dropout",
                                   "dropout_ratio": Parameter(0.05, 0.95,
@@ -353,10 +358,10 @@ class ConvNetSearchSpace(object):
             else:
                 return 0
 
-        for layer_id in range(self.max_conv_layers):
+        for layer_id in range(1, self.max_conv_layers+1):
             count += count_params(self.get_conv_layer_subspace(layer_id))
 
-        for layer_id in range(self.max_fc_layers):
+        for layer_id in range(1, self.max_fc_layers+1):
             count += count_params(self.get_fc_layer_subspace(layer_id))
 
         count += count_params(self.get_network_parameter_subspace())
@@ -466,7 +471,7 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
         params["weight-weight-decay_multiplier"] = 1
         params["bias-weight-decay_multiplier"] = 0
 
-        if layer_idx == 0:
+        if layer_idx == 1:
             params["padding"] = {"type": "zero-padding",
                                  "absolute_size": 2}
             params["kernelsize"] = 5
@@ -475,29 +480,20 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
                                  "stride": 2,
                                  "kernelsize": 3}
 
-        elif layer_idx == 1:
-            params["padding"] = {"type": "zero-padding",
-                                 "absolute_size": 2}
-            params["kernelsize"] = 5
-            params["stride"] = 1
-            params["pooling"] = {"type": "max",
-                                 "stride": 2,
-                                 "kernelsize": 3}
-
-            params["weight-weight-decay_multiplier"] = 0  
         elif layer_idx == 2:
             params["padding"] = {"type": "zero-padding",
-                                 "absolute_size": 1}
-            params["kernelsize"] = 3
+                                 "absolute_size": 2}
+            params["kernelsize"] = 5
             params["stride"] = 1
-            params["pooling"] = {"type": "none"}
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
         elif layer_idx == 3:
             params["padding"] = {"type": "zero-padding",
                                  "absolute_size": 1}
             params["kernelsize"] = 3
             params["stride"] = 1
-            params["pooling"] = {"type": "none"} 
-
+            params["pooling"] = {"type": "none"}
  
         return params
 
@@ -514,6 +510,83 @@ class Cifar10CudaConvnet(ConvNetSearchSpace):
 
         return params
 
+
+class Cifar10ConvFixed(ConvNetSearchSpace):
+    """
+        A search space, where the convolutional architecture is fixed
+        in that the number of convolutional layers as well as the 
+        pooling size is fixed. This way we make sure to avoid
+        that the image becomes too small do too structural changes.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Cifar10ConvFixed, self).__init__(max_conv_layers=3,
+                                                 max_fc_layers=3,
+                                                 num_classes=10,
+                                                 input_dimension=(3, 32, 32),
+                                                 *args, **kwargs)
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(Cifar10ConvFixed, self).get_preprocessing_parameter_subspace()
+        #crop by 4 on every side to get 32 - 4 - 4 = 24
+        params["augment"] = {"type": "augment",
+                             "crop_size": Parameter(1, 4, is_int=True)}
+
+        return params
+
+    def get_network_parameter_subspace(self):
+        #we don't change the network parameters
+        network_params = super(Cifar10ConvFixed, self).get_network_parameter_subspace()
+        #fix the number of layers
+        network_params["num_conv_layers"] = self.max_conv_layers
+        network_params["momentum"].default_val = 0.9
+        network_params["lr"].default_val = 0.001
+        network_params["weight_decay"].default_val = 0.004
+
+        return network_params
+
+    def get_conv_layer_subspace(self, layer_idx):
+        params = super(Cifar10ConvFixed, self).get_conv_layer_subspace(layer_idx)
+        #first parameters that are common to all layers:
+        params["bias-filler"] = {"type": "const-zero"}
+
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
+
+        if layer_idx == 1:
+            params["padding"] = {"type": "implicit"}
+            params["stride"] = 1
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+
+        elif layer_idx == 2:
+            params["padding"] = {"type": "implicit"}
+            params["stride"] = 1
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+        elif layer_idx == 3:
+            params["padding"] = {"type": "implicit"}
+            params["stride"] = 1
+            params["pooling"] = {"type": "none"}
+        else:
+            assert False, "unexpected layer index %d" % layer_idx
+ 
+        return params
+
+    def get_fc_layer_subspace(self, layer_idx):
+        params = super(Cifar10ConvFixed, self).get_fc_layer_subspace(layer_idx)
+        params["bias-filler"] = {"type": "const-zero"}
+
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
+
+        return params
 
 class NoDataAugmentationConvNetSearchSpace(ConvNetSearchSpace):
     """Convnet search space, but with data augmentation disabled."""

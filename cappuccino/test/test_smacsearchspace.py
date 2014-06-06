@@ -152,8 +152,8 @@ class TestConvNetSpaceConversion(unittest.TestCase):
 
 
     def setUp(self):
-        self.conv_params_to_check = ["kernelsize",
-                                     "num_output_x_128",
+        self.conv_params_to_check = ["kernelsize_odd",
+                                     "num_output",
                                      "stride",
                                      "weight-filler",
                                      "bias-filler",

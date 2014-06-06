@@ -10,7 +10,7 @@ class TerminationCriterion(object):
     def __init__(self):
         pass
 
-    def add_to_solver_param(self, solver, iter_per_epoch):
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
         raise NotImplementedError("this is just a base class..")
 
 
@@ -18,7 +18,7 @@ class TerminationCriterionMaxIter(TerminationCriterion):
     def __init__(self, max_epochs):
         self.max_epochs = max_epochs
 
-    def add_to_solver_param(self, solver, iter_per_epoch):
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
         solver.termination_criterion.append(caffe_pb2.SolverParameter.MAX_ITER)
         solver.max_iter = iter_per_epoch * self.max_epochs
 
@@ -30,10 +30,10 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         """
         self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
 
-    def add_to_solver_param(self, solver, iter_per_epoch):
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
         solver.termination_criterion.append(caffe_pb2.SolverParameter.TEST_ACCURACY)
         #stop, when no improvement for X epoches
-        solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * 10
+        solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * tests_per_epoch
 
 
 class TerminationCriterionExternal(TerminationCriterion):
@@ -42,7 +42,7 @@ class TerminationCriterionExternal(TerminationCriterion):
         self.external_cmd = external_cmd
         self.run_every_x_epochs = run_every_x_epochs
 
-    def add_to_solver_param(self, solver, iter_per_epoch):
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
         solver.termination_criterion.append(caffe_pb2.SolverParameter.EXTERNAL)
         solver.external_term_criterion_cmd = self.external_cmd
         solver.external_term_criterion_num_iter = self.run_every_x_epochs * iter_per_epoch
@@ -265,9 +265,22 @@ class CaffeConvNet(object):
         current_layer_name = current_layer_base_name + "conv"
         caffe_conv_layer.name = current_layer_name
         caffe_conv_layer.type = caffe_pb2.LayerParameter.CONVOLUTION
-        kernelsize = int(params.pop("kernelsize"))
+        if "kernelsize" in params:
+            kernelsize = int(params.pop("kernelsize"))
+        elif "kernelsize_odd" in params:
+            kernelsize = int(params.pop("kernelsize_odd")) * 2 + 1
+        else:
+            assert False, "kernelsize missing for conv layer"
         caffe_conv_layer.convolution_param.kernel_size = kernelsize
-        caffe_conv_layer.convolution_param.num_output = int(params.pop("num_output_x_128")) * 128
+
+        if "num_output_x_128" in params:
+            num_output = int(params.pop("num_output_x_128")) * 128
+        elif "num_output" in params:
+            num_output = int(params.pop("num_output"))
+        else:
+            assert False, "num_output missing for conv layer"
+        caffe_conv_layer.convolution_param.num_output = num_output
+
         caffe_conv_layer.convolution_param.stride = int(params.pop("stride"))
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_conv_layer.convolution_param.weight_filler
@@ -503,18 +516,20 @@ class CaffeConvNet(object):
         self._solver.weight_decay = params.pop("weight_decay")
         self._solver.train_net = self._train_network_file
         self._solver.test_net.append(self._valid_network_file)
-        self._solver.test_iter.append(int(self._num_valid / self._batch_size_valid))
+        self._solver.test_iter.append(max(1, int(self._num_valid / self._batch_size_valid)))
         if self._test_file is not None:
             self._solver.test_net.append(self._test_network_file)
-            self._solver.test_iter.append(int(self._num_test / self._batch_size_test))
+            self._solver.test_iter.append(max(1, int(self._num_test / self._batch_size_test)))
 
         for termination_criterion in self._termination_criterions:
-            termination_criterion.add_to_solver_param(self._solver, self._num_train / self._batch_size_train)
+            termination_criterion.add_to_solver_param(self._solver,
+                iter_per_epoch=self._num_train / self._batch_size_train,
+                tests_per_epoch=int(1./self._test_every_x_epoch))
             
         self._solver.random_seed = self._seed
         #test X times per epoch:
-        self._solver.test_interval = int(self._test_every_x_epoch * train_iter_per_epoch)
-        self._solver.display = int(0.01 * train_iter_per_epoch)
+        self._solver.test_interval = max(1, int(self._test_every_x_epoch * train_iter_per_epoch))
+        self._solver.display = max(1, int(0.01 * train_iter_per_epoch))
         self._solver.snapshot = 0
         self._solver.snapshot_prefix = "caffenet"
         if self._device == "CPU":
