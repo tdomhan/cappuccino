@@ -47,6 +47,7 @@ class Parameter(object):
 class ConvNetSearchSpace(object):
     KERNEL_RELATIVE_MAX_SIZE = 0.3 # relative to the input image, how big can the kernel be?
     KERNEL_ABSOLUTE_MIN_SIZE = 3
+    IMAGE_MIN_SIZE = 4
 
     """
         Search space for a convolutional neural network.
@@ -69,6 +70,10 @@ class ConvNetSearchSpace(object):
                  conv_layer_max_num_output=512,
                  lr_half_life_max_epoch=50,
                  num_classes=10,
+                 implicit_conv_layer_padding=True,
+                 pooling_policy="per_layer",
+                 pooling_stride=2,
+                 pooling_kernel_size=3,
                  use_only_smooth_policies=True):
         """
             input_dimension: dimension of the data input
@@ -76,6 +81,13 @@ class ConvNetSearchSpace(object):
             max_conv_layers: maximum number of convolutional layers
             max_fc_layers: maximum number of fully connected layers
             num_classes: the number of output classes
+            implicit_conv_layer_padding: if set to true, the padding won't be a parameter but, rather set
+                                         implicitly depending on the kernel size.
+            pooling_policy: either per_layer or global. When set to per_layer, each layer get's it's own pooling
+                            parameter. However this can lead to situations where due to too many pooling layers
+                            illegal configurations might occur. When set to global illegal configurations are avoided,
+                            by setting all strides to 1, only allowing 2,2 pooling and the maximum number of pooling
+                            operations is limited, so that the reduced size never falls below 4.
         """
         assert all([dim > 0 for dim in input_dimension]), "input dimension not >= 0"
         assert max_conv_layers >= 0
@@ -87,12 +99,26 @@ class ConvNetSearchSpace(object):
         self.num_classes = num_classes
         self.input_dimension = input_dimension
         self.lr_half_life_max_epoch = lr_half_life_max_epoch
+        self.implicit_conv_layer_padding = implicit_conv_layer_padding
+        self.pooling_policy = pooling_policy
+        self.pooling_stride = pooling_stride
+        self.pooling_kernel_size = pooling_kernel_size
         self.use_only_smooth_policies = use_only_smooth_policies
 
         if (self.input_dimension[0] > 1 and
             self.input_dimension[1] == 1 and
             self.input_dimension[2] == 1):
             assert self.max_conv_layers == 0, "conv layers can only used when width/height are > 1"
+
+        if self.max_conv_layers > 0 and pooling_policy == "global":
+          #note that we are not taking the data augmentation layer into account
+          min_input_dimension = min(self.input_dimension[0], self.input_dimension[1])
+          max_num_pool_operations = 0
+          current_size = min_input_dimension
+          while current_size >= IMAGE_MIN_SIZE:
+            max_num_pool_operations += 1
+            current_size = (current_size - pooling_kernel_size) / pooling_stride + 1
+          self.max_num_pool_operations = max_num_pool_operations
 
     def get_preprocessing_parameter_subspace(self):
         params  = {}
@@ -112,9 +138,8 @@ class ConvNetSearchSpace(object):
 
         params["input_dropout"] = [{"type": "no_dropout"},
                                    {"type": "dropout",
-                                    "dropout_ratio": Parameter(0.05, 0.95,
+                                    "dropout_ratio": Parameter(0.05, 0.8,
                                                           is_int=False)}]
- 
 
         return params
 
@@ -128,6 +153,16 @@ class ConvNetSearchSpace(object):
                                                   #default_val=self.max_conv_layers,
                                                   default_val=0,
                                                   is_int=True)
+
+        if self.pooling_policy == "global":
+            params["pooling_stride"] = self.pooling_stride
+            params["pooling_kernel_size"] = self.pooling_kernel_size
+            params["num_pooling_layers"] = Parameter(0,
+                                                     self.max_num_pool_operations,
+                                                     #default_val=self.max_conv_layers,
+                                                     default_val=0,
+                                                     is_int=True)
+
         #note we need at least one fc layer
         if self.max_fc_layers == 1:
             params["num_fc_layers"] = 1
@@ -140,7 +175,7 @@ class ConvNetSearchSpace(object):
         params["lr"] = Parameter(1e-7, 0.5, default_val=0.001, #Parameter(1e-10, 0.9, default_val=0.001,
                                  is_int=False, log_scale=True)
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
-        params["weight_decay"] = Parameter(0.000005, 0.05, default_val=0.0005,
+        params["weight_decay"] = Parameter(0.0000005, 0.05, default_val=0.0005,
                                            is_int=False, log_scale=True)
         params["batch_size_train"] = Parameter(10, 1000, default_val=100, is_int=True)
         fixed_policy = {"type": "fixed"}
@@ -197,11 +232,14 @@ class ConvNetSearchSpace(object):
                               ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE)
 
         params = {}
-        #params["padding"] = [{"type": "none"},
-        #                     {"type": "zero-padding",
-        #                      #percentage of the size of the kernel
-        #                      "relative_size": Parameter(0., 1.0, is_int=False)}]
-        params["padding"] = {"type": "implicit"}
+        if self.implicit_conv_layer_padding:
+          params["padding"] = {"type": "implicit"}
+        else:
+          params["padding"] = [{"type": "none"},
+                               {"type": "zero-padding",
+                                #percentage of the size of the kernel
+                                "relative_size": Parameter(0., 1.0, is_int=False)}]
+        
 
         params["type"] = "conv"
         #params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
@@ -213,20 +251,19 @@ class ConvNetSearchSpace(object):
         params["num_output"] = Parameter(MIN_NUM_OUTPUT, self.conv_layer_max_num_output,
             default_val=max(MIN_NUM_OUTPUT, min(96, self.conv_layer_max_num_output)),
             is_int=True)
-        #params["stride"] = Parameter(1, 5, is_int=True)
-        params["stride"] =  1
+        params["stride"] = 1
+        
+        #sparse: 15
         params["weight-filler"] = [{"type": "gaussian",
                                     "std": Parameter(0.000001,.1,
                                                      default_val=0.0001,
                                                      log_scale=True,
                                                      is_int=False)},
-                                   {"type": "xavier",
-                                    "std": Parameter(0.000001,.1,
-                                                     default_val=0.0001,
-                                                     log_scale=True,
-                                                     is_int=False)}]
+                                   {"type": "xavier"}]
         params["bias-filler"] = [{"type": "const-zero"},
-                                 {"type": "const-one"}]
+                                 {"type": "const-one"},
+                                 {"type": "const-value",
+                                  "value": Parameter(0., 1., is_int=False)}]
         #params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
         #                                           is_int=False,
         #                                           log_scale=True)
@@ -261,17 +298,17 @@ class ConvNetSearchSpace(object):
         params["norm"] = [{"type": "none"},
                           normalization_params]
 
-        #TODO: think about more sensible parametrization!
-        no_pooling = {"type": "none"}
-        max_pooling = {"type": "max",
-                       "stride": 2,#Parameter(1, 3, is_int=True),
-                       "kernelsize": 3#Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE, max_kernel_size, is_int=True)
-                       }
-        #average pooling:
-        ave_pooling = {"type": "ave",
-                       "stride": 2,#Parameter(1, 3, is_int=True),
-                       "kernelsize": 3#Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE, max_kernel_size, is_int=True)
-                       }
+        if self.pooling_policy == "global":
+          no_pooling = {"type": "none"}
+          max_pooling = {"type": "max"}#, "stride": 2,"kernelsize": 3}#Parameter(1, self.max_conv_layer_stride, is_int=True),
+          #average pooling:
+          ave_pooling = {"type": "ave"}#, "stride": 2, "kernelsize": 3}
+        else:
+          #Parameter(1, self.max_conv_layer_stride, is_int=True),
+          no_pooling = {"type": "none"}
+          max_pooling = {"type": "max", "stride": 2, "kernelsize": 3}
+          #average pooling:
+          ave_pooling = {"type": "ave", "stride": 2, "kernelsize": 3}
 
         #        stochastic_pooling = {"type": "stochastic"}
         params["pooling"] = [no_pooling,
@@ -299,13 +336,11 @@ class ConvNetSearchSpace(object):
                                                      default_val=0.005,
                                                      log_scale=True,
                                                      is_int=False)},
-                                   {"type": "xavier",
-                                    "std": Parameter(0.000001, 0.1,
-                                                     default_val=0.005,
-                                                     log_scale=True,
-                                                     is_int=False)}]
+                                   {"type": "xavier"}]
         params["bias-filler"] = [{"type": "const-zero"},
-                                 {"type": "const-one"}]
+                                 {"type": "const-one"},
+                                 {"type": "const-value",
+                                  "value": Parameter(0., 1., is_int=False)}]
         #params["weight-lr-multiplier"] = Parameter(0.01, 10, default_val=1,
         #                                           is_int=False,
         #                                           log_scale=True)

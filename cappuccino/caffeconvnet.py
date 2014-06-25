@@ -36,6 +36,7 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * tests_per_epoch
 
 
+
 class TerminationCriterionExternal(TerminationCriterion):
 
     def __init__(self, external_cmd, run_every_x_epochs):
@@ -47,6 +48,17 @@ class TerminationCriterionExternal(TerminationCriterion):
         solver.external_term_criterion_cmd = self.external_cmd
         solver.external_term_criterion_num_iter = self.run_every_x_epochs * iter_per_epoch
 
+
+class TerminationCriterionExternalInBackground(TerminationCriterion):
+
+    def __init__(self, external_cmd, run_every_x_epochs):
+        self.external_cmd = external_cmd
+        self.run_every_x_epochs = run_every_x_epochs
+
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
+        solver.termination_criterion.append(caffe_pb2.SolverParameter.EXTERNAL_IN_BACKGROUND)
+        solver.external_term_criterion_cmd = self.external_cmd
+        solver.external_term_criterion_num_iter = self.run_every_x_epochs * iter_per_epoch
 
 class CaffeConvNet(object):
     """
@@ -65,6 +77,9 @@ class CaffeConvNet(object):
                  batch_size_test = 100,
                  test_every_x_epoch = 0.1,
                  termination_criterions = [TerminationCriterionTestAccuracy(5)],
+                 input_image_size=None,
+                 min_image_size=None,
+                 restrict_to_legal_configurations=False,
                  device = "GPU",
                  device_id = 0,
                  seed=13,
@@ -86,6 +101,10 @@ class CaffeConvNet(object):
             batch_size_test: the batch size during testing
             test_every_x_epoch: epoch count or fraction thereof after which the test network is run.
             termination_criterions: either "accuracy" or "max_iter"
+            min_image_size: needs to be set if restrict_to_legal_configurations is True
+            restrict_to_legal_configurations: The input configuration will be corrected to form a legal configuration.
+                that is, if the size of the input shrinks too much due to pooling
+                operations, some pooling layers will be left out.
             device: either "CPU" or "GPU"
             device_id: the id of the device to run the experiment on
             snapshot_on_exit: save network on exit?
@@ -109,6 +128,13 @@ class CaffeConvNet(object):
         for termination_criterion in termination_criterions:
             assert isinstance(termination_criterion, TerminationCriterion)
         self._termination_criterions = termination_criterions
+        self._restrict_to_legal_configurations = restrict_to_legal_configurations
+        if restrict_to_legal_configurations:
+            assert min_image_size is not None, "min_image_size needs to be set."
+            assert input_image_size is not None, "min_image_size needs to be set."
+        self._min_image_size = min_image_size
+        self._input_image_size = input_image_size
+
         assert device in ["CPU", "GPU"]
         self._device = device
         self._device_id = device_id
@@ -135,16 +161,18 @@ class CaffeConvNet(object):
 
         preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
 
-        prev_layer_name = self._create_data_layer(preproc_params)
+        prev_layer_name, image_size = self._create_data_layer(preproc_params)
 
         assert len(all_conv_layers_params) == network_params['num_conv_layers']
         assert len(all_fc_layers_params) == network_params['num_fc_layers']
 
         for i, conv_layer_params in enumerate(all_conv_layers_params):
             current_layer_base_name = "conv_layer%d_" % i
-            prev_layer_name = self._create_conv_layer(current_layer_base_name,
-                                                     prev_layer_name,
-                                                     conv_layer_params)
+            prev_layer_name, image_size = self._create_conv_layer(current_layer_base_name,
+                                                                  prev_layer_name,
+                                                                  conv_layer_params,
+                                                                  image_size)
+        self._output_image_size = image_size
 
         for i, fc_layer_params in enumerate(all_fc_layers_params):
             current_layer_base_name = "fc_layer%d_" % i
@@ -233,6 +261,13 @@ class CaffeConvNet(object):
             prev_layer_name = "augmented_data"
             augmentation_layer.top.append(prev_layer_name)
 
+            if self._input_image_size is not None:
+                output_size = self._input_image_size - 2 * augmentation_layer.data_param.crop_size
+            else:
+                output_size = None
+        else:
+            output_size = self._input_image_size
+
         dropout_params = params["input_dropout"]
         if dropout_params["type"] == "dropout":
             caffe_dropout_layer = self._caffe_net.layers.add()
@@ -247,11 +282,11 @@ class CaffeConvNet(object):
             prev_layer_name = current_layer_name
 
 
-        return prev_layer_name
+        return prev_layer_name, output_size
 
 
 
-    def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params):
+    def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params, image_size):
         """
             Generate a caffe layer from the given parameters.
 
@@ -281,7 +316,8 @@ class CaffeConvNet(object):
             assert False, "num_output missing for conv layer"
         caffe_conv_layer.convolution_param.num_output = num_output
 
-        caffe_conv_layer.convolution_param.stride = int(params.pop("stride"))
+        kernelstride = int(params.pop("stride"))
+        caffe_conv_layer.convolution_param.stride = kernelstride
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_conv_layer.convolution_param.weight_filler
         for param, param_val in weight_filler_params.iteritems():
@@ -293,6 +329,8 @@ class CaffeConvNet(object):
             caffe_conv_layer.convolution_param.bias_filler.value = 0.
         elif bias_filler_params["type"] == "const-one":
             caffe_conv_layer.convolution_param.bias_filler.value = 1.
+        elif bias_filler_params["type"] == "const-value":
+            caffe_conv_layer.convolution_param.bias_filler.value = float(bias_filler_params["value"])
         else:
             raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
 
@@ -303,10 +341,17 @@ class CaffeConvNet(object):
         caffe_conv_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
         caffe_conv_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
 
-        caffe_conv_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
-        caffe_conv_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        if "weight-weight-decay_multiplier" in params:
+            caffe_conv_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
+        else:
+            caffe_conv_layer.weight_decay.append(1.0)
+        if "bias-weight-decay_multiplier" in params:
+            caffe_conv_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        else:
+            caffe_conv_layer.weight_decay.append(1.0)
 
         padding_params = params.pop("padding")
+        pad_size = 0
         if padding_params["type"] == "zero-padding":
             if "relative_size" in padding_params:
                 pad_size = int(math.floor(float(padding_params["relative_size"]) * 0.5 * kernelsize))
@@ -321,6 +366,12 @@ class CaffeConvNet(object):
 
         caffe_conv_layer.bottom.append(prev_layer_name)
         caffe_conv_layer.top.append(current_layer_name)
+
+        #calculate the output image size after the convolution operation:
+        if image_size is not None:
+            output_image_size = (image_size + 2 * pad_size - kernelsize) / kernelstride + 1;
+        else:
+            output_image_size = None
 
         prev_layer_name = current_layer_name
 
@@ -339,31 +390,59 @@ class CaffeConvNet(object):
         if pooling_params["type"] == "none":
             pass
         elif pooling_params["type"] == "max":
-            caffe_pool_layer = self._caffe_net.layers.add()
+            kernelsize = int(pooling_params["kernelsize"])
+            stride = int(pooling_params["stride"])
+            skip_layer = False
+            if output_image_size is not None:
+                new_output_image_size = (image_size - kernelsize) / stride + 1
+                if self._restrict_to_legal_configurations and new_output_image_size < self._min_image_size:
+                    skip_layer = True
+                else:
+                    output_image_size = new_output_image_size
 
-            current_layer_name = current_layer_base_name + "pool"
-            caffe_pool_layer.name = current_layer_name
-            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
-            caffe_pool_layer.bottom.append(prev_layer_name)
-            caffe_pool_layer.top.append(current_layer_name)
-            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.MAX
-            caffe_pool_layer.pooling_param.kernel_size = int(pooling_params["kernelsize"])
-            caffe_pool_layer.pooling_param.stride = int(pooling_params["stride"])
+            if skip_layer:
+                caffe_pool_layer = self._caffe_net.layers.add()
 
-            prev_layer_name = current_layer_name
+                current_layer_name = current_layer_base_name + "pool"
+                caffe_pool_layer.name = current_layer_name
+                caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
+                caffe_pool_layer.bottom.append(prev_layer_name)
+                caffe_pool_layer.top.append(current_layer_name)
+                caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.MAX
+                caffe_pool_layer.pooling_param.kernel_size = kernelsize
+                caffe_pool_layer.pooling_param.stride = stride
+
+                prev_layer_name = current_layer_name
+            else:
+                #we don't do pooling, because we are restricted to only use legal configurations
+                pass
         elif pooling_params["type"] == "ave":
-            caffe_pool_layer = self._caffe_net.layers.add()
+            kernelsize = int(pooling_params["kernelsize"])
+            stride = int(pooling_params["stride"])
+            skip_layer = False
+            if output_image_size is not None:
+                new_output_image_size = (image_size - kernelsize) / stride + 1
+                if self._restrict_to_legal_configurations and new_output_image_size < self._min_image_size:
+                    skip_layer = True
+                else:
+                    output_image_size = new_output_image_size
 
-            current_layer_name = current_layer_base_name + "pool"
-            caffe_pool_layer.name = current_layer_name
-            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
-            caffe_pool_layer.bottom.append(prev_layer_name)
-            caffe_pool_layer.top.append(current_layer_name)
-            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.AVE
-            caffe_pool_layer.pooling_param.kernel_size = int(pooling_params["kernelsize"])
-            caffe_pool_layer.pooling_param.stride = int(pooling_params["stride"])
+            if not skip_layer:
+                caffe_pool_layer = self._caffe_net.layers.add()
 
-            prev_layer_name = current_layer_name
+                current_layer_name = current_layer_base_name + "pool"
+                caffe_pool_layer.name = current_layer_name
+                caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
+                caffe_pool_layer.bottom.append(prev_layer_name)
+                caffe_pool_layer.top.append(current_layer_name)
+                caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.AVE
+                caffe_pool_layer.pooling_param.kernel_size = kernelsize
+                caffe_pool_layer.pooling_param.stride = stride
+
+                prev_layer_name = current_layer_name
+            else:
+                #we don't do pooling in this layer, because we are restricted to only use legal configurations
+                pass
         #TODO: add stochastic pooling
 
         normalization_params = params.pop("norm")
@@ -404,7 +483,7 @@ class CaffeConvNet(object):
  
         assert len(params) == 0, "More convolution parameters given than needed: " + str(params)
 
-        return prev_layer_name
+        return prev_layer_name, output_image_size
 
     def _create_fc_layer(self, current_layer_base_name, prev_layer_name, params):
         caffe_fc_layer = self._caffe_net.layers.add()
@@ -425,8 +504,14 @@ class CaffeConvNet(object):
         caffe_fc_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
         caffe_fc_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
 
-        caffe_fc_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
-        caffe_fc_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        if "weight-weight-decay_multiplier" in params:
+            caffe_fc_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
+        else:
+            caffe_fc_layer.weight_decay.append(1.0)
+        if "bias-weight-decay_multiplier" in params:
+            caffe_fc_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        else:
+            caffe_fc_layer.weight_decay.append(1.0)
 
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_fc_layer.inner_product_param.weight_filler
@@ -439,6 +524,8 @@ class CaffeConvNet(object):
             caffe_fc_layer.inner_product_param.bias_filler.value = 0.
         elif bias_filler_params["type"] == "const-one":
             caffe_fc_layer.inner_product_param.bias_filler.value = 1.
+        elif bias_filler_params["type"] == "const-value":
+            caffe_fc_layer.inner_product_param.bias_filler.value = float(bias_filler_params["value"])
         else:
             raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
 
@@ -501,13 +588,13 @@ class CaffeConvNet(object):
             else:
                 assert False, "Neither stepsize nor epochcount given."
         elif lr_policy == "inv":
-            half_life = train_iter_per_epoch * lr_policy_params.pop("half_life")
+            half_life = train_iter_per_epoch * float(lr_policy_params.pop("half_life"))
             power = lr_policy_params.pop("power")
             self._solver.gamma = (2.**(1./power) - 1.) / half_life
             self._solver.power = power
         elif lr_policy == "inv_bergstra_bengio":
             #is this parametrization correct?
-            half_life = train_iter_per_epoch * lr_policy_params.pop("half_life")
+            half_life = train_iter_per_epoch * float(lr_policy_params.pop("half_life"))
             tau = 0.5 * half_life
             self._solver.stepsize = int(train_iter_per_epoch  * lr_policy_params.pop("epochcount"))
         assert len(lr_policy_params) == 0, "More learning policy arguments given, than needed, " + str(lr_policy_params)
