@@ -35,7 +35,15 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         #stop, when no improvement for X epoches
         solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * tests_per_epoch
 
+class TerminationCriterionDivergenceDetection(TerminationCriterion):
+    def __init__(self, test_accuracy_stop_countdown):
+        """
+            test_accuracy_stop_countdown: countdown in epochs
+        """
+        self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
 
+    def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
+        solver.termination_criterion.append(caffe_pb2.SolverParameter.DIVERGENCE_DETECTION)
 
 class TerminationCriterionExternal(TerminationCriterion):
 
@@ -345,10 +353,11 @@ class CaffeConvNet(object):
             caffe_conv_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
         else:
             caffe_conv_layer.weight_decay.append(1.0)
+        print ""
         if "bias-weight-decay_multiplier" in params:
             caffe_conv_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
         else:
-            caffe_conv_layer.weight_decay.append(1.0)
+            caffe_conv_layer.weight_decay.append(.0)
 
         padding_params = params.pop("padding")
         pad_size = 0
@@ -511,7 +520,7 @@ class CaffeConvNet(object):
         if "bias-weight-decay_multiplier" in params:
             caffe_fc_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
         else:
-            caffe_fc_layer.weight_decay.append(1.0)
+            caffe_fc_layer.weight_decay.append(.0)
 
         weight_filler_params = params.pop("weight-filler")
         weight_filler = caffe_fc_layer.inner_product_param.weight_filler
