@@ -244,8 +244,8 @@ class ConvNetSearchSpace(object):
         params["type"] = "conv"
         #params["kernelsize"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE,
         #    max_kernel_size, is_int=True)
-        params["kernelsize_odd"] = Parameter(ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE/2-1,
-           max_kernel_size/2-1, is_int=True)
+        params["kernelsize_odd"] = Parameter((ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE-1)/2,
+           (max_kernel_size-1)/2, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
         MIN_NUM_OUTPUT=16
         params["num_output"] = Parameter(MIN_NUM_OUTPUT, self.conv_layer_max_num_output,

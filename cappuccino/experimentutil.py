@@ -155,7 +155,9 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
             log_error(experiment_dir, str(sys.exc_info()[0]))
             log_error(experiment_dir, str(traceback.format_exc()))
         finally:
-            if np.isfinite(lowest_error):
+            if lowest_predicted_error is not None and np.isfinite(lowest_predicted_error):
+                return lowest_predicted_error
+            elif np.isfinite(lowest_error):
                 return lowest_error
             else:
                 raise Exception("RESULT NOT FINITE!")
