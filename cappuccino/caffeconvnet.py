@@ -36,11 +36,11 @@ class TerminationCriterionTestAccuracy(TerminationCriterion):
         solver.test_accuracy_stop_countdown = self.test_accuracy_stop_countdown * tests_per_epoch
 
 class TerminationCriterionDivergenceDetection(TerminationCriterion):
-    def __init__(self, test_accuracy_stop_countdown):
+    def __init__(self):
         """
             test_accuracy_stop_countdown: countdown in epochs
         """
-        self.test_accuracy_stop_countdown = test_accuracy_stop_countdown
+        pass
 
     def add_to_solver_param(self, solver, iter_per_epoch, tests_per_epoch):
         solver.termination_criterion.append(caffe_pb2.SolverParameter.DIVERGENCE_DETECTION)
