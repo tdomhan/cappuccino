@@ -135,10 +135,11 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
         best_predicted_accuracy = None
         lowest_predicted_error = None
         if os.path.exists("y_predict.txt"):
-            best_predicted_accuracy = float(open("y_predict.txt").read())
             lowest_predicted_error = 1.0 - best_predicted_accuracy
             #make sure we don't use it in the next run as well..
             os.remove("y_predict.txt")
+            best_accuracy = max(best_accuracy, best_predicted_accuracy)
+            lowest_error = 1.0 - best_accuracy
 
         try:
             current_ybest = get_current_ybest()
@@ -155,9 +156,7 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
             log_error(experiment_dir, str(sys.exc_info()[0]))
             log_error(experiment_dir, str(traceback.format_exc()))
         finally:
-            if lowest_predicted_error is not None and np.isfinite(lowest_predicted_error):
-                return lowest_predicted_error
-            elif np.isfinite(lowest_error):
+            if np.isfinite(lowest_error):
                 return lowest_error
             else:
                 raise Exception("RESULT NOT FINITE!")

@@ -1,5 +1,6 @@
 from caffe.proto import caffe_pb2
 from subprocess import check_output, STDOUT, CalledProcessError
+import numpy as np
 import math
 import traceback
 import copy
@@ -663,6 +664,343 @@ class CaffeConvNet(object):
         return run_caffe(self._solver_file)
 
 
+class ImagenetConvNet(CaffeConvNet):
+
+    def __init__(self, **kwargs):
+        super(ImagenetConvNet, self).__init__(**kwargs)
+
+    def _convert_params_to_caffe_network(self, params):
+        """
+            Converts the given parameters into a caffe network configuration.
+        """
+        self._caffe_net = caffe_pb2.NetParameter()
+        self._solver = caffe_pb2.SolverParameter()
+
+        preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
+
+        prev_layer_name, image_size = self._create_data_layer(preproc_params)
+
+        assert len(all_conv_layers_params) == network_params['num_conv_layers']
+        assert len(all_fc_layers_params) == network_params['num_fc_layers']
+
+        for i, conv_layer_params in enumerate(all_conv_layers_params):
+            current_layer_base_name = "conv_layer%d_" % i
+            prev_layer_name, image_size = self._create_conv_layer(current_layer_base_name,
+                                                                  prev_layer_name,
+                                                                  conv_layer_params,
+                                                                  image_size)
+        self._output_image_size = image_size
+
+        if "global_average_pooling" in network_params:
+            global_average_pooling = network_params.pop("global_average_pooling")
+            if global_average_pooling["type"] == "on":
+                caffe_pool_layer = self._caffe_net.layers.add()
+
+                current_layer_name = "global_pooling"
+                caffe_pool_layer.name = current_layer_name
+                caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
+                caffe_pool_layer.bottom.append(prev_layer_name)
+                caffe_pool_layer.top.append(current_layer_name)
+                caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.AVE
+                caffe_pool_layer.pooling_param.kernel_size = 6
+                caffe_pool_layer.pooling_param.stride = 6
+                caffe_pool_layer.pooling_param.pad = 0
+
+                prev_layer_name = current_layer_name
+
+        for i, fc_layer_params in enumerate(all_fc_layers_params):
+            current_layer_base_name = "fc_layer%d_" % i
+            prev_layer_name = self._create_fc_layer(current_layer_base_name,
+                                                   prev_layer_name,
+                                                   fc_layer_params)
+
+        self._create_network_parameters(network_params)
+
+    def _create_train_valid_networks(self):
+        """
+            Given the self._caffe_net base network we create
+            different version for training, testing and predicting.
+        """
+        # train network
+        self._caffe_net_train = copy.deepcopy(self._caffe_net)
+        self._caffe_net_train.name = "train"
+        self._caffe_net_train.layers[0].data_param.source = self._train_file
+        self._caffe_net_train.layers[0].data_param.batch_size = self._batch_size_train
+        self._caffe_net_train.layers[0].data_param.mean_file = self._mean_file
+
+        #if self._mean_file:
+        #    self._caffe_net_train.layers[0].layer.meanfile = self._mean_file
+
+        # add train loss:
+        last_layer_top = self._caffe_net_train.layers[-1].top[0]
+        loss_layer = self._caffe_net_train.layers.add()
+        loss_layer.name = "loss"
+        loss_layer.type = caffe_pb2.LayerParameter.SOFTMAX_LOSS
+        loss_layer.bottom.append(last_layer_top)
+        loss_layer.bottom.append("label")
+
+        # validation network:
+        self._caffe_net_validation = copy.deepcopy(self._caffe_net)
+        self._add_softmax_accuray_layers(self._caffe_net_validation)
+        self._caffe_net_validation.name = "valid"
+        self._caffe_net_validation.layers[0].data_param.source = self._valid_file
+        self._caffe_net_validation.layers[0].data_param.batch_size = self._batch_size_valid
+        self._caffe_net_validation.layers[0].data_param.mean_file = self._mean_file
+        #if self._mean_file:
+        #    self._caffe_net_validation.layers[0].layer.meanfile = self._mean_file
+
+        if self._test_file is not None:
+            self._caffe_net_test = copy.deepcopy(self._caffe_net)
+            self._add_softmax_accuray_layers(self._caffe_net_test)
+            self._caffe_net_test.name = "test"
+            self._caffe_net_test.layers[0].data_param.source = self._test_file
+            self._caffe_net_test.layers[0].data_param.batch_size = self._batch_size_test
+            self._caffe_net_test.layers[0].data_param.mean_file = self._mean_file
+
+
+    def _create_data_layer(self, params):
+        data_layer = self._caffe_net.layers.add()
+        data_layer.name = "data"
+        data_layer.type = caffe_pb2.LayerParameter.DATA
+        data_layer.data_param.backend = caffe_pb2.DataParameter.LMDB
+        data_layer.top.append("data")
+        data_layer.top.append("label")
+        prev_layer_name = "data"
+
+        augment_params = params["augment"]
+        if augment_params["type"] == "augment":
+            augmentation_layer = self._caffe_net.layers.add()
+            augmentation_layer.name = "data_augmentation"
+            augmentation_layer.type = caffe_pb2.LayerParameter.DATA_AUGMENTATION
+            augmentation_layer.augmentation_param.mirror.rand_type = "bernoulli"
+            augmentation_layer.augmentation_param.mirror.prob = 1.
+            augmentation_layer.augmentation_param.translate.rand_type = "uniform"
+            augmentation_layer.augmentation_param.translate.mean = 0.
+            augmentation_layer.augmentation_param.translate.spread = 32.
+            augmentation_layer.augmentation_param.rotate.rand_type = "uniform"
+            augmentation_layer.augmentation_param.rotate.mean = 0.
+            augmentation_layer.augmentation_param.rotate.spread = np.deg2rad(float(augment_params["rotation_angle"]))
+            zoom_coeff = int(augment_params["zoom_coeff"])
+            if zoom_coeff == 1:
+                augmentation_layer.augmentation_param.zoom.spread = 0
+                augmentation_layer.augmentation_param.zoom.mean = 1
+            elif zoom_coeff == 2:
+                augmentation_layer.augmentation_param.zoom.spread = 0.5
+                augmentation_layer.augmentation_param.zoom.mean = 1.5
+            elif zoom_coeff == 3:
+                augmentation_layer.augmentation_param.zoom.spread = 1
+                augmentation_layer.augmentation_param.zoom.mean = 2
+            else:
+                assert False, "zoom level not allowed"
+            #TODO add color_distort and contrast parameters
+
+            augmentation_layer.augmentation_param.crop_size = int(augment_params["crop_size"])
+            augmentation_layer.bottom.append("data")
+            prev_layer_name = "augmented_data"
+            augmentation_layer.top.append(prev_layer_name)
+        return prev_layer_name, None
+
+    def _create_conv_layer(self, current_layer_base_name, prev_layer_name, params, image_size):
+        """
+            Generate a caffe layer from the given parameters.
+
+            Note: one logical layer will be converted to multiple caffe layers.
+        """
+
+        #Convolution
+        assert params.pop("type") == "conv"
+
+        caffe_conv_layer = self._caffe_net.layers.add()
+        current_layer_name = current_layer_base_name + "conv"
+        caffe_conv_layer.name = current_layer_name
+        caffe_conv_layer.type = caffe_pb2.LayerParameter.CONVOLUTION
+        if "kernelsize" in params:
+            kernelsize = int(params.pop("kernelsize"))
+        elif "kernelsize_odd" in params:
+            kernelsize = int(params.pop("kernelsize_odd")) * 2 + 1
+        else:
+            assert False, "kernelsize missing for conv layer"
+        caffe_conv_layer.convolution_param.kernel_size = kernelsize
+
+        if "num_output_x_128" in params:
+            num_output = int(params.pop("num_output_x_128")) * 128
+        elif "num_output" in params:
+            num_output = int(params.pop("num_output"))
+        else:
+            assert False, "num_output missing for conv layer"
+        caffe_conv_layer.convolution_param.num_output = num_output
+
+        kernelstride = int(params.pop("stride"))
+        caffe_conv_layer.convolution_param.stride = kernelstride
+        weight_filler_params = params.pop("weight-filler")
+        weight_filler = caffe_conv_layer.convolution_param.weight_filler
+        for param, param_val in weight_filler_params.iteritems():
+            setattr(weight_filler, param, param_val)
+
+        caffe_conv_layer.convolution_param.bias_filler.type = "constant"
+        bias_filler_params = params.pop("bias-filler")
+        if bias_filler_params["type"] == "const-zero":
+            caffe_conv_layer.convolution_param.bias_filler.value = 0.
+        elif bias_filler_params["type"] == "const-one":
+            caffe_conv_layer.convolution_param.bias_filler.value = 1.
+        elif bias_filler_params["type"] == "const-value":
+            caffe_conv_layer.convolution_param.bias_filler.value = float(bias_filler_params["value"])
+        else:
+            raise RuntimeError("unknown bias-filler %s" % (bias_filler_params["type"]))
+
+#        bias_filler_params = params.pop("bias-filler")
+#        bias_filler = caffe_conv_layer.layer.bias_filler
+#        for param, param_val in bias_filler_params.iteritems():
+#            setattr(bias_filler, param, param_val)
+        caffe_conv_layer.blobs_lr.append(params.pop("weight-lr-multiplier"))
+        caffe_conv_layer.blobs_lr.append(params.pop("bias-lr-multiplier"))
+
+        if "weight-weight-decay_multiplier" in params:
+            caffe_conv_layer.weight_decay.append(params.pop("weight-weight-decay_multiplier"))
+        else:
+            caffe_conv_layer.weight_decay.append(1.0)
+        print ""
+        if "bias-weight-decay_multiplier" in params:
+            caffe_conv_layer.weight_decay.append(params.pop("bias-weight-decay_multiplier"))
+        else:
+            caffe_conv_layer.weight_decay.append(.0)
+
+        padding_params = params.pop("padding")
+        pad_size = 0
+        if padding_params["type"] == "zero-padding":
+            if "relative_size" in padding_params:
+                pad_size = int(math.floor(float(padding_params["relative_size"]) * 0.5 * kernelsize))
+                if pad_size > 0:
+                    caffe_conv_layer.convolution_param.pad = pad_size
+            elif "absolute_size" in padding_params:
+                caffe_conv_layer.convolution_param.pad = int(padding_params["absolute_size"])
+        elif padding_params["type"] == "implicit":
+            #set it implicitly dependent on the kernel size:
+            pad_size = int(math.floor(0.5 * kernelsize))
+            caffe_conv_layer.convolution_param.pad = pad_size
+
+        caffe_conv_layer.bottom.append(prev_layer_name)
+        caffe_conv_layer.top.append(current_layer_name)
+
+        #calculate the output image size after the convolution operation:
+        if image_size is not None:
+            output_image_size = (image_size + 2 * pad_size - kernelsize) / kernelstride + 1;
+        else:
+            output_image_size = None
+
+        prev_layer_name = current_layer_name
+
+        activation = params.pop("activation")
+
+        if activation["type"]  == "relu":
+            # Relu
+            caffe_relu_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "relu"
+            caffe_relu_layer.name = current_layer_name
+            caffe_relu_layer.type = caffe_pb2.LayerParameter.RELU
+            caffe_relu_layer.bottom.append(prev_layer_name)
+            #Note: the operation is made in-place by using the same name twice
+            caffe_relu_layer.top.append(prev_layer_name)
+        elif activation["type"]  == "subspace-pooling":
+            # subspace pooling
+            caffe_subspace_pooling_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "subspace_pooling"
+            caffe_subspace_pooling_layer.name = current_layer_name
+            caffe_subspace_pooling_layer.type = caffe_pb2.LayerParameter.SUBSPACEPOOLING
+            caffe_subspace_pooling_layer.pooling_param.pool = caffe_pb2.PoolingParameter.MAX
+            caffe_subspace_pooling_layer.pooling_param.kernel_size = 2
+            caffe_subspace_pooling_layer.pooling_param.stride = 2
+            caffe_subspace_pooling_layer.pooling_param.pad = 0
+            caffe_subspace_pooling_layer.bottom.append(prev_layer_name)
+            #Note: the operation is made in-place by using the same name twice
+            caffe_subspace_pooling_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+        else:
+            assert False, "unkown activation"
+
+        # Pooling
+        pooling_params = params.pop("pooling")
+        if pooling_params["type"] == "none":
+            pass
+        elif pooling_params["type"] == "max":
+            kernelsize = int(pooling_params["kernelsize"])
+            stride = int(pooling_params["stride"])
+            caffe_pool_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "pool"
+            caffe_pool_layer.name = current_layer_name
+            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
+            caffe_pool_layer.bottom.append(prev_layer_name)
+            caffe_pool_layer.top.append(current_layer_name)
+            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.MAX
+            caffe_pool_layer.pooling_param.kernel_size = kernelsize
+            caffe_pool_layer.pooling_param.stride = stride
+
+            prev_layer_name = current_layer_name
+        elif pooling_params["type"] == "ave":
+            kernelsize = int(pooling_params["kernelsize"])
+            stride = int(pooling_params["stride"])
+            caffe_pool_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "pool"
+            caffe_pool_layer.name = current_layer_name
+            caffe_pool_layer.type = caffe_pb2.LayerParameter.POOLING
+            caffe_pool_layer.bottom.append(prev_layer_name)
+            caffe_pool_layer.top.append(current_layer_name)
+            caffe_pool_layer.pooling_param.pool = caffe_pb2.PoolingParameter.AVE
+            caffe_pool_layer.pooling_param.kernel_size = kernelsize
+            caffe_pool_layer.pooling_param.stride = stride
+
+            prev_layer_name = current_layer_name
+        else:
+            assert False, "unkown pooling layer type"
+        #TODO: add stochastic pooling
+
+        normalization_params = params.pop("norm")
+        if normalization_params["type"] == "lrn":
+            caffe_norm_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "norm"
+            caffe_norm_layer.name = current_layer_name
+            caffe_norm_layer.type = caffe_pb2.LayerParameter.LRN
+            caffe_norm_layer.bottom.append(prev_layer_name)
+            caffe_norm_layer.top.append(current_layer_name)
+            caffe_norm_layer.lrn_param.local_size = int(normalization_params["local_size"])
+            caffe_norm_layer.lrn_param.alpha = float(normalization_params["alpha"])
+            caffe_norm_layer.lrn_param.beta = float(normalization_params["beta"])
+            assert "norm_region" in  normalization_params
+            norm_region_type = normalization_params["norm_region"]["type"]
+            if norm_region_type == "across-channels":
+                caffe_norm_layer.lrn_param.norm_region = caffe_pb2.LRNParameter.ACROSS_CHANNELS
+            elif norm_region_type == "within-channels":
+                caffe_norm_layer.lrn_param.norm_region = caffe_pb2.LRNParameter.WITHIN_CHANNEL
+
+            prev_layer_name = current_layer_name
+
+
+        #Dropout
+        dropout_params = params.pop("dropout")
+        if dropout_params["type"] == "dropout":
+            caffe_dropout_layer = self._caffe_net.layers.add()
+
+            current_layer_name = current_layer_base_name + "dropout"
+            caffe_dropout_layer.name = current_layer_name
+            caffe_dropout_layer.type = caffe_pb2.LayerParameter.DROPOUT
+            caffe_dropout_layer.dropout_param.dropout_ratio = dropout_params.pop("dropout_ratio")
+            caffe_dropout_layer.bottom.append(prev_layer_name)
+            caffe_dropout_layer.top.append(current_layer_name)
+
+            prev_layer_name = current_layer_name
+ 
+        assert len(params) == 0, "More convolution parameters given than needed: " + str(params)
+
+        return prev_layer_name, output_image_size
+
+
+
 def run_caffe(solver_file, hide_output=True):
     """
         Runs caffe and returns the logging output.
@@ -676,4 +1014,8 @@ def run_caffe(solver_file, hide_output=True):
     except:
         print "UNKNOWN ERROR!"
         raise RuntimeError("Unknown exception, when running caffe." + traceback.format_exc())
+
+
+
+
 

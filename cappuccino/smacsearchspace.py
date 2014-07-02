@@ -207,7 +207,7 @@ def convnet_space_to_smac(convnet_space):
 
     num_fc_layers = network_params.pop("num_fc_layers")
     if isinstance(num_fc_layers, Parameter):
-        assert num_fc_layers.min_val == 1
+        assert num_fc_layers.min_val >= 1
         values = range(num_fc_layers.min_val, num_fc_layers.max_val+1)
         num_fc_layers_param = SMACCategorialParameter(
             "network/num_fc_layers",

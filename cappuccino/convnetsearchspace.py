@@ -408,6 +408,78 @@ class ConvNetSearchSpace(object):
         return count
 
 
+class ImagenetSearchSpace(ConvNetSearchSpace):
+    def __init__(self):
+        super(ImagenetSearchSpace, self).__init__(max_conv_layers=5,
+                                     max_fc_layers=3,
+                                     num_classes=100,
+                                     input_dimension=(3,255,255))
+
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(ImagenetSearchSpace, self).get_preprocessing_parameter_subspace()
+
+        augment_params = {"type": "augment"}
+        augment_params["crop_size"] = 32
+        augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
+        augment_params["rotation_angle"] = Parameter(0, 10, default_val=0, is_int=False)
+        augment_params["zoom_coeff"] = Parameter(1, 3, default_val=1, is_int=True)
+        augment_params["color_distort"] = Parameter(0, 1, default_val=0, is_int=False)
+        augment_params["contrast"] = Parameter(0, 1, default_val=0, is_int=False)
+        params["augment"] = augment_params
+
+        params["input_dropout"] = {"type": "no_dropout"}
+
+        return params
+
+    def get_network_parameter_subspace(self):
+        #we don't change the network parameters
+        network_params = super(ImagenetSearchSpace, self).get_network_parameter_subspace()
+        network_params["num_conv_layers"] = 5
+        network_params["num_fc_layers"] = Parameter(2, # at least one layer that generates our output 
+                                                3,#default_val=self.max_fc_layers,
+                                                default_val=2,
+                                                is_int=True)
+        network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        return network_params
+
+    def get_conv_layer_subspace(self, layer_idx):
+        params = super(ImagenetSearchSpace, self).get_conv_layer_subspace(layer_idx)
+        params["activation"] = [{"type": "relu"},
+                                {"type": "subspace-pooling"}]
+        params.pop("kernelsize_odd")
+        if layer_idx == 1:
+            params["kernelsize"] = 11
+            params["stride"] = 4
+            params["num_output"] = 64
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+        elif layer_idx == 2:
+            params["kernelsize"] = 5
+            params["stride"] = 1
+            params["num_output"] = 128
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+        elif layer_idx > 2:
+            params["kernelsize"] = 3
+            params["stride"] = 1
+            params["num_output"] = 196
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+        return params
+
+    def get_fc_layer_subspace(self, layer_idx):
+        params = super(ImagenetSearchSpace, self).get_fc_layer_subspace(layer_idx)
+        params["num_output"] = 1024
+        if "num_output_x_128" in params:
+          params.pop("num_output_x_128")
+
+        return params
+
+
 class LeNet5(ConvNetSearchSpace):
     """
         A search space, where the architecture is fixed

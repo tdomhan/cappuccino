@@ -125,7 +125,7 @@ def convnet_space_to_tpe(convnet_space):
     if isinstance(network_params["num_conv_layers"], Parameter):
         assert network_params["num_conv_layers"].min_val == 0
     if isinstance(network_params["num_fc_layers"], Parameter):
-        assert network_params["num_fc_layers"].min_val == 1
+        assert network_params["num_fc_layers"].min_val >= 1
 
     #in hyperopt we will represent the number of conv layers as a choice object
     #that's why we can strip them here:
