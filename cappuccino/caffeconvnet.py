@@ -410,7 +410,7 @@ class CaffeConvNet(object):
                 else:
                     output_image_size = new_output_image_size
 
-            if skip_layer:
+            if not skip_layer:
                 caffe_pool_layer = self._caffe_net.layers.add()
 
                 current_layer_name = current_layer_base_name + "pool"
