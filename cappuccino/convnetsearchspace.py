@@ -408,12 +408,14 @@ class ConvNetSearchSpace(object):
         return count
 
 
+
 class ImagenetSearchSpace(ConvNetSearchSpace):
     def __init__(self):
         super(ImagenetSearchSpace, self).__init__(max_conv_layers=5,
+                                     implicit_conv_layer_padding=True,
                                      max_fc_layers=3,
-                                     num_classes=100,
-                                     input_dimension=(3,255,255))
+                                     num_classes=1000,
+                                     input_dimension=(3,256,256))
 
 
     def get_preprocessing_parameter_subspace(self):
@@ -443,13 +445,35 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
                                                 default_val=2,
                                                 is_int=True)
         network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        network_params["batch_size_train"] = 256
         return network_params
 
     def get_conv_layer_subspace(self, layer_idx):
         params = super(ImagenetSearchSpace, self).get_conv_layer_subspace(layer_idx)
         params["activation"] = [{"type": "relu"},
                                 {"type": "subspace-pooling"}]
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
+        params["bias-weight-decay_multiplier"] = 0
         params.pop("kernelsize_odd")
+
+        params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+
+        params["dropout"] = {"type": "no_dropout"}
+
+        if layer_idx == 1:
+          params["bias-filler"] = {"type": "const-zero"}
+        elif layer_idx == 2:
+          params["bias-filler"] = {"type": "const-one"}
+        elif layer_idx == 3:
+          params["bias-filler"] = {"type": "const-zero"}
+        elif layer_idx == 4:
+          params["bias-filler"] = {"type": "const-one"}
+        elif layer_idx == 5:
+          params["bias-filler"] = {"type": "const-one"}
+
         if layer_idx == 1:
             params["kernelsize"] = 11
             params["stride"] = 4
@@ -457,6 +481,12 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
             params["pooling"] = {"type": "max",
                                  "stride": 2,
                                  "kernelsize": 3}
+            params["norm"]  = {"type": "lrn",
+                               "norm_region": {"type": "across-channels"},
+                                "local_size": 5,
+                                "alpha": 0.0001,
+                                "beta": 0.75
+                                }
         elif layer_idx == 2:
             params["kernelsize"] = 5
             params["stride"] = 1
@@ -464,6 +494,12 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
             params["pooling"] = {"type": "max",
                                  "stride": 2,
                                  "kernelsize": 3}
+            params["norm"]  = {"type": "lrn",
+                               "norm_region": {"type": "across-channels"},
+                                "local_size": 5,
+                                "alpha": 0.0001,
+                                "beta": 0.75
+                                }
         elif layer_idx > 2:
             params["kernelsize"] = 3
             params["stride"] = 1
@@ -471,13 +507,30 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
             params["pooling"] = {"type": "max",
                                  "stride": 2,
                                  "kernelsize": 3}
+            params["norm"] = {"type": "none"}
         return params
 
     def get_fc_layer_subspace(self, layer_idx):
         params = super(ImagenetSearchSpace, self).get_fc_layer_subspace(layer_idx)
-        params["num_output"] = 1024
-        if "num_output_x_128" in params:
-          params.pop("num_output_x_128")
+        
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
+        params["bias-weight-decay_multiplier"] = 0
+
+
+        if layer_idx == 3:
+            #last fc layer before softmax
+            params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+            params["bias-filler"] = {"type": "const-zero"}
+        else:
+            params["num_output"] = 1024
+            if "num_output_x_128" in params:
+              params.pop("num_output_x_128")
+            params["weight-filler"] = {"type": "gaussian", "std": 0.005}
+            params["bias-filler"] = {"type": "const-one"}
+            params["dropout"] = {"type": "dropout","dropout_ratio": 0.5}
 
         return params
 
