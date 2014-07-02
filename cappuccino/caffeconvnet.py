@@ -773,26 +773,65 @@ class ImagenetConvNet(CaffeConvNet):
             augmentation_layer.name = "data_augmentation"
             augmentation_layer.type = caffe_pb2.LayerParameter.DATA_AUGMENTATION
             augmentation_layer.augmentation_param.mirror.rand_type = "bernoulli"
-            augmentation_layer.augmentation_param.mirror.prob = 1.
+            augmentation_layer.augmentation_param.mirror.prob = 0.5
             augmentation_layer.augmentation_param.translate.rand_type = "uniform"
             augmentation_layer.augmentation_param.translate.mean = 0.
-            augmentation_layer.augmentation_param.translate.spread = 32.
+            augmentation_layer.augmentation_param.translate.spread = 0.1 # specified in percent
             augmentation_layer.augmentation_param.rotate.rand_type = "uniform"
             augmentation_layer.augmentation_param.rotate.mean = 0.
             augmentation_layer.augmentation_param.rotate.spread = np.deg2rad(float(augment_params["rotation_angle"]))
             zoom_coeff = int(augment_params["zoom_coeff"])
             if zoom_coeff == 1:
-                augmentation_layer.augmentation_param.zoom.spread = 0
-                augmentation_layer.augmentation_param.zoom.mean = 1
+                # WE don't need to set these 
+                #augmentation_layer.augmentation_param.zoom.spread = 0
+                #augmentation_layer.augmentation_param.zoom.mean = 0
+                #augmentation_layer.augmentation_param.zoom.exp = True
+                pass
             elif zoom_coeff == 2:
-                augmentation_layer.augmentation_param.zoom.spread = 0.5
-                augmentation_layer.augmentation_param.zoom.mean = 1.5
+                augmentation_layer.augmentation_param.zoom.rand_type = "uniform"
+                augmentation_layer.augmentation_param.zoom.spread = 0.35
+                augmentation_layer.augmentation_param.zoom.mean = 0.35
+                augmentation_layer.augmentation_param.zoom.exp = True
             elif zoom_coeff == 3:
-                augmentation_layer.augmentation_param.zoom.spread = 1
-                augmentation_layer.augmentation_param.zoom.mean = 2
+                augmentation_layer.augmentation_param.zoom.rand_type = "uniform"
+                augmentation_layer.augmentation_param.zoom.spread = 0.8
+                augmentation_layer.augmentation_param.zoom.mean = 0.8
+                augmentation_layer.augmentation_param.zoom.exp = True
             else:
                 assert False, "zoom level not allowed"
-            #TODO add color_distort and contrast parameters
+            # set color_distort and contrast parameters
+            color_coeff = augment_params["color_distort"]
+            contrast_coeff = augment_params["contrast"]
+            brightness_coeff = augment_params["brightness"]
+
+            if color_coeff > 0.:
+                augmentation_layer.augmentation_param.col_add.rand_type = "uniform"
+                augmentation_layer.augmentation_param.col_add.mean = 0.2 * color_coeff
+                augmentation_layer.augmentation_param.col_add.spread = 0.3 * color_coeff
+
+                augmentation_layer.augmentation_param.col_mult.rand_type = "gaussian"
+                augmentation_layer.augmentation_param.col_mult.mean = 0.
+                augmentation_layer.augmentation_param.col_mult.spread = 0.7 * color_coeff
+                augmentation_layer.augmentation_param.col_mult.exp = True
+            if contrast_coeff > 0.:
+                augmentation_layer.augmentation_param.sat_add.rand_type = "uniform"
+                augmentation_layer.augmentation_param.sat_add.mean = 0.3 * contrast_coeff
+                augmentation_layer.augmentation_param.sat_add.spread = 0.5 * contrast_coeff
+
+                augmentation_layer.augmentation_param.sat_mult.rand_type = "gaussian"
+                augmentation_layer.augmentation_param.sat_mult.mean = 0.
+                augmentation_layer.augmentation_param.sat_mult.spread = contrast_coeff
+                augmentation_layer.augmentation_param.sat_mult.exp = True
+            if brightness_coeff > 0.:
+                augmentation_layer.augmentation_param.lmult_add.rand_type = "uniform"
+                augmentation_layer.augmentation_param.lmult_add.mean = 0.3 * brightness_coeff
+                augmentation_layer.augmentation_param.lmult_add.spread = 0.3 * brightness_coeff
+
+                augmentation_layer.augmentation_param.lmult_mult.rand_type = "gaussian"
+                augmentation_layer.augmentation_param.lmult_mult.mean = 0.
+                augmentation_layer.augmentation_param.lmult_mult.spread = brightness_coeff
+                augmentation_layer.augmentation_param.lmult_mult.exp = True
+                                
 
             augmentation_layer.augmentation_param.crop_size = int(augment_params["crop_size"])
             augmentation_layer.bottom.append("data")

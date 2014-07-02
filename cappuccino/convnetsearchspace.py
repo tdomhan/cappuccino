@@ -423,11 +423,13 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
 
         augment_params = {"type": "augment"}
         augment_params["crop_size"] = 32
-        augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
+        # the multiplier will be fixed
+        #augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
         augment_params["rotation_angle"] = Parameter(0, 10, default_val=0, is_int=False)
         augment_params["zoom_coeff"] = Parameter(1, 3, default_val=1, is_int=True)
         augment_params["color_distort"] = Parameter(0, 1, default_val=0, is_int=False)
         augment_params["contrast"] = Parameter(0, 1, default_val=0, is_int=False)
+        augment_params["brightness"] = Parameter(0, 1, default_val=0, is_int=False)
         params["augment"] = augment_params
 
         params["input_dropout"] = {"type": "no_dropout"}
