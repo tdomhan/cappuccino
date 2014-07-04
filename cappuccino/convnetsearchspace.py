@@ -444,7 +444,18 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
                                                 3,#default_val=self.max_fc_layers,
                                                 default_val=2,
                                                 is_int=True)
-        network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        #network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        network_params["global_average_pooling"] = {"type": "off"}
+        network_params["lr"] = Parameter(1e-4, 0.5, default_val=0.01, 
+                                 is_int=False, log_scale=True)
+
+        network_params["momentum"] = Parameter(0.5, 0.99, default_val=0.9, is_int=False)
+	network_params["lr_policy"] = {"type": "inv",
+				       "half_life": Parameter(1, self.lr_half_life_max_epoch, is_int=False),
+				       "power": Parameter(0.5, 1,
+                                         is_int=False, log_scale = True)}
+ 
+ 
         network_params["batch_size_train"] = 256
         return network_params
 
