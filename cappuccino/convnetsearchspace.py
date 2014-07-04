@@ -422,7 +422,7 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
         params = super(ImagenetSearchSpace, self).get_preprocessing_parameter_subspace()
 
         augment_params = {"type": "augment"}
-        augment_params["crop_size"] = 32
+        augment_params["crop_size"] = 224
         # the multiplier will be fixed
         #augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
         augment_params["rotation_angle"] = Parameter(0, 10, default_val=0, is_int=False)
@@ -444,7 +444,8 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
                                                 3,#default_val=self.max_fc_layers,
                                                 default_val=2,
                                                 is_int=True)
-        network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        #network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        network_params["global_average_pooling"] = {"type": "off"}
         network_params["batch_size_train"] = 256
         return network_params
 
