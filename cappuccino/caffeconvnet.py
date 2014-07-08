@@ -88,6 +88,7 @@ class CaffeConvNet(object):
                  termination_criterions = [TerminationCriterionTestAccuracy(5)],
                  input_image_size=None,
                  min_image_size=None,
+	         snapshot_prefix="caffenet",
                  restrict_to_legal_configurations=False,
                  device = "GPU",
                  device_id = 0,
@@ -138,6 +139,7 @@ class CaffeConvNet(object):
             assert isinstance(termination_criterion, TerminationCriterion)
         self._termination_criterions = termination_criterions
         self._restrict_to_legal_configurations = restrict_to_legal_configurations
+	self._snapshot_prefix = snapshot_prefix
         if restrict_to_legal_configurations:
             assert min_image_size is not None, "min_image_size needs to be set."
             assert input_image_size is not None, "min_image_size needs to be set."
@@ -628,7 +630,7 @@ class CaffeConvNet(object):
         self._solver.test_interval = max(1, int(self._test_every_x_epoch * train_iter_per_epoch))
         self._solver.display = max(1, int(0.01 * train_iter_per_epoch))
         self._solver.snapshot = 0
-        self._solver.snapshot_prefix = "caffenet"
+        self._solver.snapshot_prefix = self._snapshot_prefix
         if self._device == "CPU":
             self._solver.solver_mode = caffe_pb2.SolverParameter.CPU
         elif self._device == "GPU":
@@ -1037,7 +1039,6 @@ class ImagenetConvNet(CaffeConvNet):
         assert len(params) == 0, "More convolution parameters given than needed: " + str(params)
 
         return prev_layer_name, output_image_size
-
 
 
 def run_caffe(solver_file, hide_output=True):
