@@ -425,11 +425,11 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
         augment_params["crop_size"] = 224
         # the multiplier will be fixed
         #augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
-        augment_params["rotation_angle"] = Parameter(0, 10, default_val=0, is_int=False)
-        augment_params["zoom_coeff"] = Parameter(1, 3, default_val=1, is_int=True)
-        augment_params["color_distort"] = Parameter(0, 1, default_val=0, is_int=False)
-        augment_params["contrast"] = Parameter(0, 1, default_val=0, is_int=False)
-        augment_params["brightness"] = Parameter(0, 1, default_val=0, is_int=False)
+        augment_params["rotation_angle"] = Parameter(0, 10, default_val=5, is_int=False)
+        augment_params["zoom_coeff"] = Parameter(0, 1, default_val=0.2, is_int=False)
+        augment_params["color_distort"] = Parameter(0, 1, default_val=0.1, is_int=False)
+        augment_params["contrast"] = Parameter(0, 1, default_val=0.1, is_int=False)
+        augment_params["brightness"] = Parameter(0, 1, default_val=0.1, is_int=False)
         params["augment"] = augment_params
 
         params["input_dropout"] = {"type": "no_dropout"}
@@ -440,7 +440,7 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
         #we don't change the network parameters
         network_params = super(ImagenetSearchSpace, self).get_network_parameter_subspace()
         network_params["num_conv_layers"] = 5
-        network_params["num_fc_layers"] = Parameter(2, # at least one layer that generates our output 
+        network_params["num_fc_layers"] = Parameter(1, # at least one layer that generates our output 
                                                 3,#default_val=self.max_fc_layers,
                                                 default_val=2,
                                                 is_int=True)

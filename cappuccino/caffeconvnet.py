@@ -782,25 +782,11 @@ class ImagenetConvNet(CaffeConvNet):
             augmentation_layer.augmentation_param.rotate.rand_type = "uniform"
             augmentation_layer.augmentation_param.rotate.mean = 0.
             augmentation_layer.augmentation_param.rotate.spread = np.deg2rad(float(augment_params["rotation_angle"]))
-            zoom_coeff = int(augment_params["zoom_coeff"])
-            if zoom_coeff == 1:
-                # WE don't need to set these 
-                #augmentation_layer.augmentation_param.zoom.spread = 0
-                #augmentation_layer.augmentation_param.zoom.mean = 0
-                #augmentation_layer.augmentation_param.zoom.exp = True
-                pass
-            elif zoom_coeff == 2:
-                augmentation_layer.augmentation_param.zoom.rand_type = "uniform"
-                augmentation_layer.augmentation_param.zoom.spread = 0.35
-                augmentation_layer.augmentation_param.zoom.mean = 0.35
-                augmentation_layer.augmentation_param.zoom.exp = True
-            elif zoom_coeff == 3:
-                augmentation_layer.augmentation_param.zoom.rand_type = "uniform"
-                augmentation_layer.augmentation_param.zoom.spread = 0.8
-                augmentation_layer.augmentation_param.zoom.mean = 0.8
-                augmentation_layer.augmentation_param.zoom.exp = True
-            else:
-                assert False, "zoom level not allowed"
+            zoom_coeff = float(augment_params["zoom_coeff"])
+	    augmentation_layer.augmentation_param.zoom.rand_type = "uniform"
+	    augmentation_layer.augmentation_param.zoom.spread = 0.5 * zoom_coeff
+	    augmentation_layer.augmentation_param.zoom.mean = 0.5 * zoom_coeff
+	    augmentation_layer.augmentation_param.zoom.exp = True
             # set color_distort and contrast parameters
             color_coeff = augment_params["color_distort"]
             contrast_coeff = augment_params["contrast"]
