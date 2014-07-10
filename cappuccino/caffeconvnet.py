@@ -680,6 +680,9 @@ class ImagenetConvNet(CaffeConvNet):
 
         preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
 
+	if "conv_norm_constraint" in network_params:
+	    self._conv_norm_constraint = network_params["conv_norm_constraint"]
+
         prev_layer_name, image_size = self._create_data_layer(preproc_params)
 
         assert len(all_conv_layers_params) == network_params['num_conv_layers']
@@ -856,6 +859,8 @@ class ImagenetConvNet(CaffeConvNet):
         else:
             assert False, "num_output missing for conv layer"
         caffe_conv_layer.convolution_param.num_output = num_output
+
+        caffe_conv_layer.max_weight_norm = self._conv_norm_constraint
 
         kernelstride = int(params.pop("stride"))
         caffe_conv_layer.convolution_param.stride = kernelstride

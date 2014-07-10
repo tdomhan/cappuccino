@@ -410,12 +410,14 @@ class ConvNetSearchSpace(object):
 
 
 class ImagenetSearchSpace(ConvNetSearchSpace):
-    def __init__(self):
+    def __init__(self, parameterize_winit=False):
+        self.parameterize_winit = parameterize_winit
         super(ImagenetSearchSpace, self).__init__(max_conv_layers=5,
                                      implicit_conv_layer_padding=True,
                                      max_fc_layers=3,
                                      num_classes=1000,
                                      input_dimension=(3,256,256))
+				     
 
 
     def get_preprocessing_parameter_subspace(self):
@@ -444,8 +446,10 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
                                                 3,#default_val=self.max_fc_layers,
                                                 default_val=2,
                                                 is_int=True)
-        #network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
-        network_params["global_average_pooling"] = {"type": "off"}
+        network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        network_params["conv_norm_constraint"] = Parameter(0.5, 10., default_val=2, 
+                                 			is_int=False, log_scale=False)
+        #network_params["global_average_pooling"] = {"type": "off"}
         network_params["lr"] = Parameter(1e-4, 0.5, default_val=0.01, 
                                  is_int=False, log_scale=True)
 
@@ -469,7 +473,10 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
         params["bias-weight-decay_multiplier"] = 0
         params.pop("kernelsize_odd")
 
-        params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+        if self.parameterize_winit:
+          params["weight-filler"] = {"type": "gaussian", "std": Parameter(0.001, 0.1, default_val=0.01, is_int=False, log_scale=True)}
+        else:
+          params["weight-filler"] = {"type": "gaussian", "std": 0.01}
 
         params["dropout"] = {"type": "no_dropout"}
 
@@ -532,13 +539,19 @@ class ImagenetSearchSpace(ConvNetSearchSpace):
 
         if layer_idx == 3:
             #last fc layer before softmax
-            params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+            if self.parameterize_winit:
+              params["weight-filler"] = {"type": "gaussian", "std": Parameter(0.001, 0.1, default_val=0.01, is_int=False, log_scale=True)}
+            else:
+              params["weight-filler"] = {"type": "gaussian", "std": 0.01}
             params["bias-filler"] = {"type": "const-zero"}
         else:
             params["num_output"] = 1024
             if "num_output_x_128" in params:
               params.pop("num_output_x_128")
-            params["weight-filler"] = {"type": "gaussian", "std": 0.005}
+            if self.parameterize_winit:
+              params["weight-filler"] = {"type": "gaussian", "std": Parameter(0.0005, 0.05, default_val=0.005, is_int=False, log_scale=True)}
+            else:
+              params["weight-filler"] = {"type": "gaussian", "std": 0.01}
             params["bias-filler"] = {"type": "const-one"}
             params["dropout"] = {"type": "dropout","dropout_ratio": 0.5}
 
