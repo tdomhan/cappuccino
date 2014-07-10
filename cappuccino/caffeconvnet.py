@@ -681,7 +681,7 @@ class ImagenetConvNet(CaffeConvNet):
         preproc_params, all_conv_layers_params, all_fc_layers_params, network_params = params
 
 	if "conv_norm_constraint" in network_params:
-	    self._conv_norm_constraint = network_params["conv_norm_constraint"]
+	    self._conv_norm_constraint = network_params.pop("conv_norm_constraint")
 
         prev_layer_name, image_size = self._create_data_layer(preproc_params)
 
