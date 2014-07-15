@@ -682,6 +682,8 @@ class ImagenetConvNet(CaffeConvNet):
 
 	if "conv_norm_constraint" in network_params:
 	    self._conv_norm_constraint = network_params.pop("conv_norm_constraint")
+	else:
+	    self._conv_norm_constraint = None
 
         prev_layer_name, image_size = self._create_data_layer(preproc_params)
 
@@ -720,6 +722,8 @@ class ImagenetConvNet(CaffeConvNet):
                                                    fc_layer_params)
 
         self._create_network_parameters(network_params)
+        if self._conv_norm_constraint is not None:
+            self._solver.weight_constraint = True
 
     def _create_train_valid_networks(self):
         """
