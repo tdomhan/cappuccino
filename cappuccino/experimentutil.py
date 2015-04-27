@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import traceback
+import socket
 import numpy as np
 from collections import defaultdict
 from cappuccino.paramutil import hpolib_to_caffenet
@@ -126,7 +127,7 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
             raise Exception("no learning curve found")
         valid_learning_curve = learning_curves["valid"]
         best_accuracy = np.mean(valid_learning_curve[-mean_performance_on_last:])
-        if not np.isfinite(best_accuracy):
+        if best_accuracy is None or not np.isfinite(best_accuracy):
             best_accuracy = .0
         lowest_error = 1.0 - best_accuracy
         total_time = learning_curve_timestamps[-1] - learning_curve_timestamps[0]
@@ -136,18 +137,22 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
         lowest_predicted_error = None
         if os.path.exists("y_predict.txt"):
             best_predicted_accuracy = float(open("y_predict.txt").read())
+            if best_predicted_accuracy is None or not np.isfinite(best_predicted_accuracy):
+                best_predicted_accuracy = .0
             lowest_predicted_error = 1.0 - best_predicted_accuracy
             #make sure we don't use it in the next run as well..
             os.remove("y_predict.txt")
+            best_accuracy = max(best_accuracy, best_predicted_accuracy)
+            lowest_error = 1.0 - best_accuracy
 
         try:
             current_ybest = get_current_ybest()
             store_result(experiment_dir, caffe_convnet_params, lowest_error, total_time,
                          learning_curves, learning_curve_timestamps, predicted_loss=lowest_predicted_error,
-                         extra={"current_ybest": current_ybest})
+                         extra={"current_ybest": current_ybest, "hostname": socket.gethostname()})
             store_result(working_dir, caffe_convnet_params, lowest_error, total_time,
                          learning_curves, learning_curve_timestamps, predicted_loss=lowest_predicted_error,
-                         extra={"current_ybest": current_ybest})
+                         extra={"current_ybest": current_ybest, "hostname": socket.gethostname()})
             update_ybest(best_accuracy)
         except Exception as e:
             print "Unexpected error:", sys.exc_info()[0]
@@ -155,9 +160,7 @@ def hpolib_experiment_main(params, construct_caffeconvnet,
             log_error(experiment_dir, str(sys.exc_info()[0]))
             log_error(experiment_dir, str(traceback.format_exc()))
         finally:
-            if lowest_predicted_error is not None and np.isfinite(lowest_predicted_error):
-                return lowest_predicted_error
-            elif np.isfinite(lowest_error):
+            if np.isfinite(lowest_error):
                 return lowest_error
             else:
                 raise Exception("RESULT NOT FINITE!")

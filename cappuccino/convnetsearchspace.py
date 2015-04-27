@@ -67,10 +67,13 @@ class ConvNetSearchSpace(object):
                  max_conv_layers=3,
                  max_fc_layers=3,
                  fc_layer_max_num_output_x_128=48,
+                 conv_layer_min_num_output=16,
                  conv_layer_max_num_output=512,
                  lr_half_life_max_epoch=50,
                  num_classes=10,
                  implicit_conv_layer_padding=True,
+                 use_conv_layer_dropout=True,
+                 use_conv_norm_constraint=False,
                  pooling_policy="per_layer",
                  pooling_stride=2,
                  pooling_kernel_size=3,
@@ -96,10 +99,13 @@ class ConvNetSearchSpace(object):
         self.max_fc_layers = max_fc_layers
         self.fc_layer_max_num_output_x_128 = fc_layer_max_num_output_x_128
         self.conv_layer_max_num_output = conv_layer_max_num_output
+        self.conv_layer_min_num_output = conv_layer_min_num_output
         self.num_classes = num_classes
         self.input_dimension = input_dimension
         self.lr_half_life_max_epoch = lr_half_life_max_epoch
         self.implicit_conv_layer_padding = implicit_conv_layer_padding
+        self.use_conv_layer_dropout = use_conv_layer_dropout
+        self.use_conv_norm_constraint = use_conv_norm_constraint
         self.pooling_policy = pooling_policy
         self.pooling_stride = pooling_stride
         self.pooling_kernel_size = pooling_kernel_size
@@ -177,6 +183,8 @@ class ConvNetSearchSpace(object):
         params["momentum"] = Parameter(0, 0.99, default_val=0.6, is_int=False)
         params["weight_decay"] = Parameter(0.0000005, 0.05, default_val=0.0005,
                                            is_int=False, log_scale=True)
+        params["conv_norm_constraint"] = Parameter(0.5, 10., default_val=2,
+            is_int=False, log_scale=False)
         params["batch_size_train"] = Parameter(10, 1000, default_val=100, is_int=True)
         fixed_policy = {"type": "fixed"}
         """
@@ -184,7 +192,7 @@ class ConvNetSearchSpace(object):
                 lr = base_lr * gamma^iteration
         """
         exp_policy = {"type": "exp",
-                      "gamma": Parameter(0.8, 0.99999, is_int=False)}
+                      "half_life": Parameter(1, self.lr_half_life_max_epoch, is_int=False)}
         """
             step_policy:
             lr = base_lr * gamma^epoch
@@ -200,7 +208,7 @@ class ConvNetSearchSpace(object):
         inv_policy = {"type": "inv",
                       "half_life": Parameter(1, self.lr_half_life_max_epoch, is_int=False),
                       "power": Parameter(0.5, 1,
-                                         is_int=False, log_scale = True)}
+                                         is_int=False, log_scale=False)}
         """
             inv_bergstra_bengio:
 
@@ -210,7 +218,7 @@ class ConvNetSearchSpace(object):
                                       "half_life": Parameter(1,
                                         self.lr_half_life_max_epoch, is_int=False)}
         params["lr_policy"] = [fixed_policy,
-                               #exp_policy, #TODO the half-life based policy needs to be fixed before adding again.
+                               exp_policy,
                                inv_policy]
         if not self.use_only_smooth_policies:
             #also add non-smooth policies, that potentially hurt the learning rate prediction.
@@ -247,9 +255,8 @@ class ConvNetSearchSpace(object):
         params["kernelsize_odd"] = Parameter((ConvNetSearchSpace.KERNEL_ABSOLUTE_MIN_SIZE-1)/2,
            (max_kernel_size-1)/2, is_int=True)
         #reducing the search spacing by only allowing multiples of 128
-        MIN_NUM_OUTPUT=16
-        params["num_output"] = Parameter(MIN_NUM_OUTPUT, self.conv_layer_max_num_output,
-            default_val=max(MIN_NUM_OUTPUT, min(96, self.conv_layer_max_num_output)),
+        params["num_output"] = Parameter(self.conv_layer_min_num_output, self.conv_layer_max_num_output,
+            default_val=max(self.conv_layer_min_num_output, min(96, self.conv_layer_max_num_output)),
             is_int=True)
         params["stride"] = 1
         
@@ -298,6 +305,8 @@ class ConvNetSearchSpace(object):
         params["norm"] = [{"type": "none"},
                           normalization_params]
 
+        params["activation"] = {"type": "relu"}
+
         if self.pooling_policy == "global":
           no_pooling = {"type": "none"}
           max_pooling = {"type": "max"}#, "stride": 2,"kernelsize": 3}#Parameter(1, self.max_conv_layer_stride, is_int=True),
@@ -315,10 +324,11 @@ class ConvNetSearchSpace(object):
                              max_pooling,
                              ave_pooling]
 
-        params["dropout"] = [{"type": "dropout",
-                              "dropout_ratio": Parameter(0.05, 0.95,
-                                                         is_int=False)},
-                             {"type": "no_dropout"}]
+        if self.use_conv_layer_dropout:
+            params["dropout"] = [{"type": "dropout",
+                                  "dropout_ratio": Parameter(0.05, 0.95,
+                                                             is_int=False)},
+                                 {"type": "no_dropout"}]
  
         return params
 
@@ -359,7 +369,7 @@ class ConvNetSearchSpace(object):
             params["num_output_x_128"] = Parameter(1, self.fc_layer_max_num_output_x_128,
                 default_val=min(8, self.fc_layer_max_num_output_x_128),
                 is_int=True,)
-            params["activation"] = "relu"
+            params["activation"] = {"type": "relu"}
             params["dropout"] = [{"type": "dropout",
                                   "dropout_ratio": Parameter(0.05, 0.95,
                                                              default_val=0.5,
@@ -368,7 +378,7 @@ class ConvNetSearchSpace(object):
                                   
         else:
             params["num_output"] = self.num_classes
-            params["activation"] = "none"
+            params["activation"] = {"type": "none"}
             params["dropout"] = {"type": "no_dropout"}
 
         return params
@@ -406,6 +416,287 @@ class ConvNetSearchSpace(object):
 
         print "Total: ", count
         return count
+
+
+
+class ImagenetSearchSpace(ConvNetSearchSpace):
+    def __init__(self):
+        super(ImagenetSearchSpace, self).__init__(max_conv_layers=5,
+                                     implicit_conv_layer_padding=True,
+                                     max_fc_layers=3,
+                                     num_classes=1000,
+                                     input_dimension=(3,256,256))
+
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(ImagenetSearchSpace, self).get_preprocessing_parameter_subspace()
+
+        augment_params = {"type": "augment"}
+        augment_params["crop_size"] = 224
+        # the multiplier will be fixed
+        #augment_params["max_multiplier"] = Parameter(1, 2, default_val=2, is_int=False)
+        augment_params["rotation_angle"] = Parameter(0, 10, default_val=0, is_int=False)
+        augment_params["zoom_coeff"] = Parameter(1, 3, default_val=1, is_int=True)
+        augment_params["color_distort"] = Parameter(0, 1, default_val=0, is_int=False)
+        augment_params["contrast"] = Parameter(0, 1, default_val=0, is_int=False)
+        augment_params["brightness"] = Parameter(0, 1, default_val=0, is_int=False)
+        params["augment"] = augment_params
+
+        params["input_dropout"] = {"type": "no_dropout"}
+
+        return params
+
+    def get_network_parameter_subspace(self):
+        #we don't change the network parameters
+        network_params = super(ImagenetSearchSpace, self).get_network_parameter_subspace()
+        network_params["num_conv_layers"] = 5
+        network_params["num_fc_layers"] = Parameter(2, # at least one layer that generates our output 
+                                                3,#default_val=self.max_fc_layers,
+                                                default_val=2,
+                                                is_int=True)
+        #network_params["global_average_pooling"] = [{"type": "off"}, {"type": "on"}]
+        network_params["global_average_pooling"] = {"type": "off"}
+        network_params["batch_size_train"] = 256
+        return network_params
+
+    def get_conv_layer_subspace(self, layer_idx):
+        params = super(ImagenetSearchSpace, self).get_conv_layer_subspace(layer_idx)
+        params["activation"] = [{"type": "relu"},
+                                {"type": "subspace-pooling"}]
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
+        params["bias-weight-decay_multiplier"] = 0
+        params.pop("kernelsize_odd")
+
+        params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+
+        params["dropout"] = {"type": "no_dropout"}
+
+        if layer_idx == 1:
+          params["bias-filler"] = {"type": "const-zero"}
+        elif layer_idx == 2:
+          params["bias-filler"] = {"type": "const-one"}
+        elif layer_idx == 3:
+          params["bias-filler"] = {"type": "const-zero"}
+        elif layer_idx == 4:
+          params["bias-filler"] = {"type": "const-one"}
+        elif layer_idx == 5:
+          params["bias-filler"] = {"type": "const-one"}
+
+        if layer_idx == 1:
+            params["kernelsize"] = 11
+            params["stride"] = 4
+            params["num_output"] = 64
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+            params["norm"]  = {"type": "lrn",
+                               "norm_region": {"type": "across-channels"},
+                                "local_size": 5,
+                                "alpha": 0.0001,
+                                "beta": 0.75
+                                }
+        elif layer_idx == 2:
+            params["kernelsize"] = 5
+            params["stride"] = 1
+            params["num_output"] = 128
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+            params["norm"]  = {"type": "lrn",
+                               "norm_region": {"type": "across-channels"},
+                                "local_size": 5,
+                                "alpha": 0.0001,
+                                "beta": 0.75
+                                }
+        elif layer_idx > 2:
+            params["kernelsize"] = 3
+            params["stride"] = 1
+            params["num_output"] = 196
+            params["pooling"] = {"type": "max",
+                                 "stride": 2,
+                                 "kernelsize": 3}
+            params["norm"] = {"type": "none"}
+        return params
+
+    def get_fc_layer_subspace(self, layer_idx):
+        params = super(ImagenetSearchSpace, self).get_fc_layer_subspace(layer_idx)
+        
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
+        params["bias-weight-decay_multiplier"] = 0
+
+
+        if layer_idx == 3:
+            #last fc layer before softmax
+            params["weight-filler"] = {"type": "gaussian", "std": 0.01}
+            params["bias-filler"] = {"type": "const-zero"}
+        else:
+            params["num_output"] = 1024
+            if "num_output_x_128" in params:
+              params.pop("num_output_x_128")
+            params["weight-filler"] = {"type": "gaussian", "std": 0.005}
+            params["bias-filler"] = {"type": "const-one"}
+            params["dropout"] = {"type": "dropout","dropout_ratio": 0.5}
+
+        return params
+
+
+class CIFAR10SubspacePoolingSearchSpace(ConvNetSearchSpace):
+    def __init__(self):
+        super(CIFAR10SubspacePoolingSearchSpace, self).__init__(
+                                     max_conv_layers=3,
+                                     implicit_conv_layer_padding=True,
+                                     use_conv_norm_constraint=True,
+                                     lr_half_life_max_epoch=300,
+                                     max_fc_layers=2,
+                                     num_classes=10,
+                                     input_dimension=(3,32,32))
+
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(CIFAR10SubspacePoolingSearchSpace, self).get_preprocessing_parameter_subspace()
+
+        augment_params = {"type": "augment"}
+        augment_params["crop_size"] = Parameter(1, 3, is_int=True)
+        params["augment"] = [{"type": "none"},
+                             augment_params]
+        return params
+
+    def get_network_parameter_subspace(self):
+        #we don't change the network parameters
+        network_params = super(CIFAR10SubspacePoolingSearchSpace, self).get_network_parameter_subspace()
+        network_params["num_fc_layers"].default_val = 2
+        network_params["num_conv_layers"] = 3
+        network_params["batch_size_train"].default_val = 128
+        network_params["conv_norm_constraint"].default_val = 1.9
+        network_params["weight_decay"] = Parameter(0.0000000005, 0.005,
+                                           default_val=0.0000000005,
+                                           is_int=False, log_scale=True)
+        other_policies = []
+        for policy in network_params["lr_policy"]:
+          if policy["type"] == "exp":
+            exp_policy = policy
+            #set half-life to get gamma = 0.99999
+            exp_policy["half_life"].default_val = 213
+          else:
+            other_policies.append(policy)
+        network_params["lr_policy"] = other_policies
+        network_params["lr_policy"].insert(0, exp_policy)
+
+        network_params["lr"].default_val=0.01
+        return network_params
+
+    def get_conv_layer_subspace(self, layer_idx):
+        params = super(CIFAR10SubspacePoolingSearchSpace, self).get_conv_layer_subspace(layer_idx)
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 1
+        params["weight-weight-decay_multiplier"] = 1
+        params["bias-weight-decay_multiplier"] = 0
+        
+
+        params["dropout"] = {"type": "dropout", "dropout_ratio": 0.5}
+
+        params["norm"]  = {"type": "none"}
+
+        params["activation"] = [{"type": "subspace-pooling", "size": 2},
+                                {"type": "relu"}]
+
+        params.pop("kernelsize_odd")
+        params.pop("num_output")
+        max_pooling = {"type": "max", "stride": 2, "kernelsize": 3}
+        ave_pooling = {"type": "ave", "stride": 2, "kernelsize": 3}
+
+        if layer_idx == 1:
+            params["kernelsize"] = 5
+            #times two, because this is what the subspace pooling layer expects!
+            params["num_output_x_2"] = Parameter(46, 128,
+              default_val=96,
+              is_int=True)
+            #NOTE: we assume the first one is the gaussian filler:
+            params["weight-filler"][0]["std"] = Parameter(0.00001,.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)
+
+            params["pooling"] = [max_pooling,
+                                 ave_pooling]
+        elif layer_idx == 2:
+            params["kernelsize"] = 5
+            #times two, because this is what the subspace pooling layer expects!
+            params["num_output_x_2"] = Parameter(46, 256,
+              default_val=196,
+              is_int=True)
+            params["weight-filler"][0]["std"] = Parameter(0.00001,.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)
+            params["pooling"] = [ave_pooling, max_pooling]
+        elif layer_idx > 2:
+            params["kernelsize"] = 3
+            #times two, because this is what the subspace pooling layer expects!
+            params["num_output_x_2"] = Parameter(46, 256,
+              default_val=196,
+              is_int=True)
+            params["weight-filler"][0]["std"] = Parameter(0.00001,.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)
+            params["pooling"] = [ave_pooling, max_pooling]
+        else:
+          assert False
+        return params
+
+
+    def get_fc_layer_subspace(self, layer_idx):
+        params = super(CIFAR10SubspacePoolingSearchSpace, self).get_fc_layer_subspace(layer_idx)
+        
+        params["weight-lr-multiplier"] = 1
+        params["bias-lr-multiplier"] = 2
+        params["weight-weight-decay_multiplier"] = 1
+        #No weight decay on the biases, why? see "Pattern Recognition and ML" by Bishop page 258
+        params["bias-weight-decay_multiplier"] = 0
+
+        if layer_idx == 2:
+            #last fc layer before softmax
+            params["weight-filler"][0]["std"] = Parameter(0.00001,.1,
+                                                     default_val=0.01,
+                                                     log_scale=True,
+                                                     is_int=False)
+        else:
+            if "num_output_x_128" in params:
+              params.pop("num_output_x_128")
+            if "num_output_x_2" in params:
+              params.pop("num_output_x_2")
+            params["num_output_x_5"] = Parameter(100, 600, default_val=500, is_int=True)
+            params["dropout"] = {"type": "dropout","dropout_ratio": 0.5}
+            params["weight-filler"][0]["std"] = Parameter(0.00001,.1,
+                                                     default_val=0.005,
+                                                     log_scale=True,
+                                                     is_int=False)
+            params["activation"] = [{"type": "subspace-pooling", "size": 5},
+                                {"type": "relu"}]
+
+        return params
+
+
+"""
+The same as CIFAR10SubspacePoolingSearchSpace, except that we don't do data augmentation.
+"""
+class SVHNSubspacePoolingSearchSpace(CIFAR10SubspacePoolingSearchSpace):
+    def __init__(self):
+        super(SVHNSubspacePoolingSearchSpace, self).__init__()
+
+
+    def get_preprocessing_parameter_subspace(self):
+        params = super(SVHNSubspacePoolingSearchSpace, self).get_preprocessing_parameter_subspace()
+
+        params["augment"] = {"type": "none"}
+        return params
 
 
 class LeNet5(ConvNetSearchSpace):
